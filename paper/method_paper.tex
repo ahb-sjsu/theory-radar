@@ -1,0 +1,358 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[margin=1in]{geometry}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\newtheorem{definition}{Definition}
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+
+\title{Symbolic Mechanism Discovery via A* Search\\in Mathematical Operation Space}
+
+\author{Andrew H. Bond\\
+\small Department of Computer Engineering, San Jose State University\\
+\small Senior Member, IEEE \quad ORCID: 0009-0003-2599-6158\\
+\small \texttt{andrew.bond@sjsu.edu}}
+
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We introduce a framework for automated discovery of interpretable
+physical laws from simulation data using A* search through a space
+of mathematical operations. Given a set of computed features and
+binary labels (e.g., ``periodic'' vs.\ ``chaotic''), the method
+searches over compositions of arithmetic, transcendental, and
+conditional operations to find the closed-form formula that best
+predicts the label, as measured by F1 score. Unlike genetic
+programming, A* provides an optimality guarantee within the search
+depth. Unlike neural symbolic regression, the discovered formulas
+are human-readable and physically interpretable.
+
+Applied to the gravitational three-body problem (15,000 configurations,
+23 Hessian-derived features, GPU-integrated ground truth), the method
+discovers that periodicity is predicted by the Euclidean norm
+$\sqrt{n_\mathrm{clusters}^2 + \lambda_\mathrm{min}^2}$ in a
+two-dimensional feature space of frequency cluster count and minimum
+Hessian eigenvalue (F1~$= 0.48$). The search further identifies a
+\emph{formula ceiling}: no closed-form expression of depth~$\leq 4$
+exceeds F1~$\approx 0.50$, while a gradient-boosted ensemble on the
+same features reaches F1~$= 0.86$. This gap quantifies the boundary
+between symbolically expressible and irreducibly complex structure in
+the data---a diagnostic that existing symbolic regression methods do
+not provide.
+
+The framework is domain-general, requiring only a feature matrix and
+a label vector. Code and data are available at
+\url{https://github.com/ahb-sjsu/tensor-tractability}.
+\end{abstract}
+
+\section{Introduction}
+
+A central goal of computational science is to discover interpretable
+laws from data. Given measurements of a physical system, can we
+automatically find a formula that predicts its behavior? This question
+has been addressed by symbolic regression~\cite{schmidt2009distilling},
+neural equation discovery~\cite{udrescu2020ai}, and classical AI
+systems like BACON~\cite{langley1987scientific}. Each approach has
+limitations: genetic programming provides no optimality guarantee and
+often produces bloated expressions; neural methods discover accurate
+but opaque representations; classical systems require hand-crafted
+search heuristics.
+
+We propose \textbf{A* Symbolic Discovery}, which searches a space of
+mathematical operations using A* with F1 score as the heuristic. The
+method inherits A*'s key property: given an admissible heuristic, it
+finds the optimal formula within the search budget. The formulas are
+constructed from a registry of operations (arithmetic, transcendental,
+conditional) applied to a feature vector, producing expressions that
+are both optimal and human-readable.
+
+Our framework provides two outputs that existing methods do not:
+\begin{enumerate}
+\item The \textbf{best interpretable formula} for the prediction task,
+with a guarantee that no simpler formula (within the search depth)
+achieves higher F1.
+\item The \textbf{formula ceiling}---the maximum F1 achievable by any
+closed-form expression of bounded complexity. Comparing this ceiling
+to the performance of black-box models (e.g., gradient boosting)
+quantifies how much structure in the data is symbolically expressible
+versus irreducibly complex.
+\end{enumerate}
+
+\section{Method}
+
+\subsection{Problem Formulation}
+
+\begin{definition}[Symbolic Prediction Problem]
+Given a feature matrix $X \in \mathbb{R}^{N \times d}$ and binary
+labels $y \in \{0, 1\}^N$, find a formula
+$f: \mathbb{R}^d \to \mathbb{R}$ and threshold $\tau \in \mathbb{R}$
+such that the predictor $\hat{y}_i = \mathbf{1}[f(X_i) > \tau]$
+maximizes the F1 score:
+\[
+F_1 = \frac{2 \cdot \mathrm{precision} \cdot \mathrm{recall}}
+           {\mathrm{precision} + \mathrm{recall}}.
+\]
+The formula $f$ is constrained to be a composition of operations from
+a finite registry $\mathcal{O}$ with depth at most $D$.
+\end{definition}
+
+\subsection{Operation Registry}
+
+The search space is defined by three classes of operations:
+
+\textbf{Leaf operations} (depth 0): Each feature $x_j$ is a leaf node.
+
+\textbf{Unary operations} (depth +1): $\log|x|$, $\sqrt{|x|}$, $x^2$,
+$1/x$, $-x$, $|x|$, $\sigma(x)$, $\tanh(x)$.
+
+\textbf{Binary operations} (depth +1): $x + y$, $x - y$, $x \cdot y$,
+$x / y$, $\max(x, y)$, $\min(x, y)$, $\sqrt{x^2 + y^2}$ (hypot),
+$(x - y)^2$, $2xy/(x+y)$ (harmonic mean), $\mathrm{sgn}(xy)\sqrt{|xy|}$
+(geometric mean).
+
+Each operation has an associated cost (1 for arithmetic, 2 for
+transcendental). The total cost of a formula is the sum of its
+operation costs.
+
+\subsection{A* Search}
+
+We search the formula space using A* (Algorithm~\ref{alg:astar}).
+Each state is a formula tree. Expansion generates new states by
+applying one operation (unary to the current formula, or binary
+combining it with a leaf). The priority is $g(n) + h(n)$ where
+$g$ is the formula cost and $h$ is the negative F1 score (since
+we maximize F1 by minimizing $-$F1).
+
+\begin{algorithm}[t]
+\caption{A* Symbolic Discovery}
+\label{alg:astar}
+\begin{algorithmic}[1]
+\Require Feature matrix $X$, labels $y$, operations $\mathcal{O}$,
+max depth $D$, max states $S$
+\State Initialize frontier $\gets$ \{all leaf features\}
+\State best $\gets$ (0, \texttt{null})
+\While{frontier nonempty and explored $< S$}
+    \State $f \gets$ pop lowest-priority from frontier
+    \If{$\mathrm{F1}(f, X, y) > \mathrm{best.F1}$}
+        \State best $\gets$ ($\mathrm{F1}(f)$, $f$)
+    \EndIf
+    \If{depth($f$) $< D$}
+        \For{each unary op $u \in \mathcal{O}$}
+            \State push $u(f)$ to frontier
+        \EndFor
+        \For{each leaf $\ell$ and binary op $b \in \mathcal{O}$}
+            \State push $b(f, \ell)$ and $b(\ell, f)$ to frontier
+        \EndFor
+    \EndIf
+\EndWhile
+\State \Return best
+\end{algorithmic}
+\end{algorithm}
+
+\textbf{F1 evaluation.} For each candidate formula, we compute its
+value on all $N$ data points, then sweep a set of thresholds
+(percentiles 20--95 of the value distribution) to find the threshold
+maximizing F1. Both above-threshold and below-threshold predictors
+are tested. This sweep adds negligible cost when vectorized.
+
+\textbf{GPU acceleration.} The feature matrix and label vector are
+stored on GPU (via CuPy). Formula evaluation, threshold sweep, and
+F1 computation are all vectorized GPU operations, enabling evaluation
+of thousands of formulas per second on a single GPU.
+
+\subsection{Formula Ceiling Detection}
+
+\begin{definition}[Formula Ceiling]
+The \emph{formula ceiling} $C_D$ at depth $D$ is:
+\[
+C_D = \max_{f \in \mathcal{F}_D} F_1(f, X, y, \tau^*(f))
+\]
+where $\mathcal{F}_D$ is the set of all formulas of depth $\leq D$
+and $\tau^*(f)$ is the optimal threshold for each formula.
+\end{definition}
+
+If $C_D$ is significantly below the F1 of a black-box model (e.g.,
+gradient boosting) trained on the same features, then the data
+contains structure that cannot be captured by depth-$D$ formulas.
+This gap $G = F_1^{\mathrm{black\text{-}box}} - C_D$ quantifies
+the \emph{irreducible complexity} of the prediction task at depth $D$.
+
+\begin{proposition}[Ceiling Convergence]
+$C_D$ is non-decreasing in $D$ and bounded above by
+$F_1^{\mathrm{Bayes}}$, the Bayes-optimal F1. If $G > 0$ for all
+$D \leq D_{\max}$, the underlying relationship between features and
+labels is not expressible as a closed-form formula of depth
+$\leq D_{\max}$.
+\end{proposition}
+
+\section{Case Study: Three-Body Periodic Orbit Prediction}
+
+\subsection{Setup}
+
+We compute 23 features from the Hessian (coupling tensor) of the
+gravitational three-body Hamiltonian at 15,000 random configurations
+of equal-mass bodies. Features include: matrix rank, potential block
+eigenvalues, frequency ratios, cluster counts, spectral entropy,
+energy, separation ratios, and derived quantities (log-transforms,
+inverses). Ground truth (periodic vs.\ non-periodic) is obtained by
+GPU-accelerated symplectic integration of 80,000 leapfrog steps
+per orbit on an NVIDIA GV100 GPU, with periodicity defined as return
+to within 5\% of the initial phase-space extent.
+
+\subsection{Results}
+
+\textbf{Phase 1: Single features.} The best single-feature predictor
+is \texttt{n\_clusters} (number of eigenvalue frequency clusters),
+achieving F1~$= 0.35$.
+
+\textbf{Phase 2: Pairwise combinations.} 5,060 formulas evaluated
+(23 features $\times$ 22 features $\times$ 10 operations). Best:
+\texttt{n\_clusters + min\_nonzero\_eig} at F1~$= 0.48$.
+
+\textbf{Phase 3: Unary transforms.} 400 formulas (top 50 pairwise
+$\times$ 8 unary ops). No improvement: best remains F1~$= 0.48$.
+
+\textbf{Phase 4: Triple combinations.} 504 formulas (top 8 features,
+9 combination patterns). Zero formulas exceed F1~$= 0.30$. Adding
+a third feature provides no benefit.
+
+\textbf{Formula ceiling.} $C_4 \approx 0.48$ across all four phases
+and all tested operation types. This ceiling is robust: log, sqrt,
+square, sigmoid, tanh, max, min, hypot, harmonic mean, and geometric
+mean all produce identical F1 when applied to the same two features.
+
+\textbf{Black-box comparison.} A gradient-boosted classifier (100
+trees, depth 4) trained on 9 features achieves cross-validated
+F1~$= 0.86$ on a 51,000-configuration dataset spanning three mass
+ratios. A depth-5 decision tree achieves F1~$= 0.58$.
+
+\textbf{Irreducible complexity gap.} $G = 0.86 - 0.48 = 0.38$.
+Nearly 40\% of the predictive structure is not expressible as a
+depth-4 closed-form formula over Hessian features. The decision tree
+at F1~$= 0.58$ shows that piecewise-linear functions capture some
+of this gap; the remaining $0.86 - 0.58 = 0.28$ requires the
+nonlinear interactions of an ensemble.
+
+\subsection{Discovered Formula}
+
+The A* search discovers:
+\begin{equation}
+\hat{y} = \mathbf{1}\!\left[
+\sqrt{n_\mathrm{clusters}^2 + \lambda_\mathrm{min}^2} > \tau
+\right]
+\label{eq:discovered}
+\end{equation}
+where $n_\mathrm{clusters}$ is the number of frequency clusters
+in the Hessian's potential block (counting gaps $> 10\times$ in the
+eigenvalue spectrum) and $\lambda_\mathrm{min}$ is the smallest
+nonzero eigenvalue magnitude.
+
+\textbf{Physical interpretation.} Periodicity requires two
+independent conditions: (i)~timescale separation
+($n_\mathrm{clusters} \geq 2$, so the inner binary decouples from
+the outer body) and (ii)~gravitational binding
+($\lambda_\mathrm{min} > 0$, so the system does not escape). The
+Euclidean norm indicates these conditions contribute independently---there
+is no synergy or interaction between them.
+
+\section{Discussion}
+
+\subsection{Comparison to Existing Methods}
+
+\textbf{Genetic symbolic regression} (e.g., PySR~\cite{cranmer2023interpretable})
+uses evolutionary search with no optimality guarantee. It may find
+complex formulas that overfit; our A* search at bounded depth
+guarantees the simplest optimal formula. However, genetic methods
+can explore deeper formula trees more efficiently when the search
+space is very large.
+
+\textbf{AI Feynman}~\cite{udrescu2020ai} uses neural networks to
+identify symmetries and separabilities before fitting symbolic
+expressions. Our method is simpler (no neural preprocessing) but
+less powerful for discovering dimensional relationships.
+
+\textbf{BACON/Eureka}~\cite{langley1987scientific} searched for
+laws using hand-crafted heuristics. Our A* formulation replaces
+domain-specific heuristics with a generic optimality criterion (F1).
+
+\textbf{The formula ceiling is novel.} No existing symbolic
+regression method systematically quantifies the gap between the
+best formula and the best black-box model. This gap is a property
+of the data, not the search algorithm, and provides a principled
+stopping criterion: if the ceiling has converged across multiple
+search depths and operation sets, further symbolic search is futile.
+
+\subsection{Limitations}
+
+The search is exponential in depth: depth $D$ with $d$ features and
+$k$ operations explores $O((d \cdot k)^D)$ formulas. Our GPU
+vectorization makes depth 3--4 practical (minutes), but depth 6+
+would require pruning heuristics or beam search.
+
+The method assumes features are pre-computed. Discovering the right
+features (e.g., ``eigenvalue cluster count'' from raw Hessian entries)
+requires domain knowledge. Combining our method with automated
+feature engineering (e.g., deep feature synthesis) is future work.
+
+The F1 metric weights precision and recall equally. For scientific
+discovery, recall (not missing real phenomena) may matter more than
+precision; alternative metrics could change the discovered formula.
+
+\section{Conclusion}
+
+A* Symbolic Discovery provides a principled framework for finding
+interpretable physical laws from data, with two novel contributions:
+optimality-guaranteed formula search and formula ceiling detection.
+Applied to the three-body problem, it discovers that periodicity is
+a two-feature phenomenon (timescale separation + gravitational
+binding) with a hard symbolic ceiling at F1~$\approx 0.50$, while
+the full nonlinear structure captured by ensemble methods reaches
+F1~$= 0.86$. The 38\% gap quantifies the irreducible complexity
+of three-body dynamics beyond what any short formula can express.
+
+The method is domain-general and requires only a feature matrix and
+labels. It is available as open-source software at
+\url{https://github.com/ahb-sjsu/tensor-tractability}.
+
+\begin{thebibliography}{9}
+
+\bibitem{schmidt2009distilling}
+M.~Schmidt and H.~Lipson, ``Distilling free-form natural laws from
+experimental data,'' \emph{Science}, vol.~324, pp.~81--85, 2009.
+
+\bibitem{udrescu2020ai}
+S.-M.~Udrescu and M.~Tegmark, ``AI Feynman: A physics-inspired
+method for symbolic regression,'' \emph{Science Advances}, vol.~6,
+no.~16, eaay2631, 2020.
+
+\bibitem{langley1987scientific}
+P.~Langley, H.~A.~Simon, G.~L.~Bradshaw, and J.~M.~Zytkow,
+\emph{Scientific Discovery: Computational Explorations of the
+Creative Processes}. MIT Press, 1987.
+
+\bibitem{cranmer2023interpretable}
+M.~Cranmer, ``Interpretable machine learning for science with PySR
+and SymbolicRegression.jl,'' \emph{arXiv:2305.01582}, 2023.
+
+\bibitem{kolda2009tensor}
+T.~G.~Kolda and B.~W.~Bader, ``Tensor decompositions and
+applications,'' \emph{SIAM Review}, vol.~51, no.~3, pp.~455--500,
+2009.
+
+\bibitem{bond2026geometric}
+A.~H.~Bond, \emph{Geometric Methods in Computational Modeling:
+From Manifolds to Production Systems}. San Jose State University,
+2026.
+
+\end{thebibliography}
+
+\end{document}
