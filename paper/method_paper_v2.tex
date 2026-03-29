@@ -109,22 +109,27 @@ The search space is defined by three operation classes:
 
 \textbf{Leaf nodes} (depth 0): Each of the $d$ features $x_j$.
 
-\textbf{Unary operations} (depth $+1$): $\{\log|\cdot|, \sqrt{|\cdot|},
-(\cdot)^2, 1/(\cdot), -(\cdot), |\cdot|, \sigma(\cdot),
-\tanh(\cdot)\}$ (8 operations).
+\textbf{Unary operations} (depth $+1$): The full registry contains 8
+operations: $\log|\cdot|$, $\sqrt{|\cdot|}$, $(\cdot)^2$, $1/(\cdot)$,
+$-(\cdot)$, $|\cdot|$, $\sigma(\cdot)$, $\tanh(\cdot)$.
+In the experiments reported here, we use a subset of 5:
+$\{\log, \sqrt{}, (\cdot)^2, 1/(\cdot), -(\cdot)\}$.
 
-\textbf{Binary operations} (depth $+1$): $+$, $-$, $\times$, $\div$,
-$\max$, $\min$, hypot, $(\cdot{-}\cdot)^2$, harmonic mean,
-geometric mean (10 operations).
+\textbf{Binary operations} (depth $+1$): The full registry contains 10
+operations. In our experiments we use 7:
+$\{+, -, \times, \div, \max, \min, \mathrm{hypot}\}$.
+The remaining 3 (diff-squared, harmonic mean, geometric mean) are
+available in the software but were not used in the reported runs.
 
 \subsection{Phased Exhaustive Search}
 
 Rather than a single tree search, we organize the exploration into
-four phases (Algorithm~\ref{alg:search}). Each phase exhaustively
-evaluates all formulas at its complexity level.
+four phases (Algorithm~\ref{alg:search}). Phases~1--2 enumerate all
+formulas of their structural type; Phases~3--4 are restricted to
+top-$K$ results from earlier phases and are not exhaustive.
 
 \begin{algorithm}[t]
-\caption{Phased Exhaustive Symbolic Search}
+\caption{Phased Symbolic Search (Phases~1--2 exhaustive; 3--4 filtered)}
 \label{alg:search}
 \begin{algorithmic}[1]
 \Require Features $X \in \mathbb{R}^{N \times d}$, labels $y$,
@@ -237,19 +242,19 @@ phased search on four standard classification datasets and compare
 the formula ceiling to gradient-boosted ensembles (Table~\ref{tab:bench}).
 
 \begin{table}[h]
-\caption{Formula ceiling across domains. ``Gap'' $= F_1^{\mathrm{GB}} - C$.
-Negative gap means the formula outperforms the ensemble.}
+\caption{Formula ceiling across domains. GB F1 is 5-fold CV
+($\pm$ std); ceiling is deterministic (no variance). Gap $= \text{GB} - C$.}
 \label{tab:bench}
 \small
 \begin{tabular}{lccrl}
 \toprule
-Dataset ($d$) & Ceiling & GB F1 & Gap & Formula \\
+Dataset ($d$) & Ceiling & GB F1 (CV) & Gap & Formula \\
 \midrule
-Circles (2) & \textbf{0.996} & 0.989 & $-$0.007 & \texttt{hypot(x1,x2)} \\
-Breast Ca.\ (30) & 0.948 & 0.962 & +0.014 & \texttt{f7 + f22} \\
-Ionosphere (34) & 0.902 & 0.934 & +0.032 & \texttt{log(f6 min f5)} \\
-Moons (2) & 0.833 & 0.969 & +0.136 & \texttt{x2} \\
-Three-body (23) & 0.480 & 0.830 & +0.350 & \texttt{hypot(n\_cl, $\lambda_\mathrm{min}$)} \\
+Circles (2) & 0.996 & $0.989{\pm}.01$ & $-$0.01 & \texttt{hypot} \\
+Breast Ca.\ (30) & 0.948 & $0.962{\pm}.01$ & +0.01 & \texttt{f7+f22} \\
+Ionosphere (34) & 0.902 & $0.934{\pm}.03$ & +0.03 & \texttt{log(f6 min f5)} \\
+Moons (2) & 0.833 & $0.969{\pm}.01$ & +0.14 & \texttt{x2} \\
+Three-body (23) & 0.480 & $0.830{\pm}.02$ & +0.35 & \texttt{hypot(n,\,$\lambda$)} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -260,13 +265,14 @@ boosting ($F_1 = 0.996$ vs.\ $0.989$). On \textbf{Breast Cancer} and
 \textbf{Ionosphere}, simple two-feature formulas achieve 95--98\% of
 ensemble performance. On \textbf{Moons}, the nonlinear boundary resists
 depth-3 formulas (gap $= 0.136$). On the \textbf{Three-body} problem,
-the gap is largest ($0.38$), reflecting genuine nonlinear complexity.
+the gap is largest ($0.35$), indicating substantial nonlinear structure.
 
-The ceiling concept is validated: it correctly identifies problems that
-admit simple formulas (Circles: gap $< 0$), problems where formulas
-are close (Breast Cancer: gap $= 1.4\%$), and problems that require
-complex models (Three-body: gap $= 35\%$). All gaps are computed with
-ensemble and ceiling on the same data.
+On these benchmarks, the ceiling distinguishes problems where simple
+formulas suffice (Circles: gap $< 0$), problems where formulas are
+close (Breast Cancer: gap $\approx 1\%$), and problems where the
+enumerated formulas leave substantial room for improvement
+(Three-body: gap $= 35\%$). All gaps use ensemble and ceiling
+on the same data and CV splits.
 
 \section{Case Study: Three-Body Periodic Orbit Prediction}
 
@@ -327,17 +333,17 @@ is representative of the equivalence class.
 
 \begin{table}[h]
 \caption{Formula ceiling vs.\ black-box models (all on 15K dataset,
-5-fold CV for ensemble methods).}
+5-fold CV for ensemble methods; $\pm$ shows fold standard deviation).}
 \label{tab:gap}
 \begin{tabular}{lcc}
 \toprule
-Model & F1 & Gap from ceiling \\
+Model & F1 & Gap \\
 \midrule
 Random (4\% base rate) & $\sim$0.07 & --- \\
 $r_2/r_1 > 10$ & 0.29 & --- \\
-Best enumerated formula & 0.48 & 0.00 (ceiling) \\
-Decision tree (depth 5, CV) & 0.55 & $-$0.07 \\
-Gradient boosting (CV) & 0.83 & $-$0.35 \\
+Best enumerated formula & 0.48 & 0.00 \\
+Decision tree (CV) & $0.55 \pm 0.03$ & $-$0.07 \\
+Gradient boosting (CV) & $0.83 \pm 0.02$ & $-$0.35 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -350,8 +356,9 @@ interactions of an ensemble. Within the enumerated formula structures,
 no expression achieves more than 58\% of the ensemble's predictive
 power on this dataset. This gap may narrow with deeper search, richer
 operations, or additional features, but its stability across Phases~2--3
-and across all tested operation types suggests it reflects genuine
-complexity rather than a search limitation.
+and across all tested operation types is consistent with genuine
+data complexity, though a richer formula space (e.g., multi-term
+sums, deeper nesting) could in principle narrow the gap.
 
 \subsection{Physical Interpretation}
 
@@ -416,8 +423,8 @@ Breast Cancer & 0.926 & \textbf{0.934} & 0.934 \\
 \end{table}
 
 The ceiling converges at Phase~2 for all datasets. Phase~3 (unary
-transforms) never improves the best score, confirming that the ceiling
-is a stable property rather than a search artifact.
+transforms) does not improve the best score, suggesting that the ceiling
+has stabilized for the tested operations.
 
 \textbf{Ablation.} On Circles, removing the \texttt{hypot} operation
 drops the ceiling from 0.996 to 0.796. All other operations are
@@ -468,15 +475,16 @@ but does not quantify when further search is futile.
 
 \subsection{The Ceiling as a Scientific Diagnostic}
 
-The formula ceiling is not just a performance metric---it is a
-statement about the data. A converged ceiling means the relationship
-between features and labels has a \emph{fundamental} nonlinearity
-that no short formula can capture. In our three-body case study,
-the ceiling of 0.48 through Phase~3 with the gap of 0.35 to gradient
-boosting tells us that three-body periodic orbit prediction is
-genuinely complex: it depends on nonlinear feature interactions that
-the underlying physics does not reduce to a compact law at the level
-of Hessian features.
+The formula ceiling is a statement about the interaction between the
+data and the searched formula space. A converged ceiling with a
+positive gap means that the enumerated formulas do not capture the
+full predictive structure available to flexible models. This could
+indicate genuine nonlinearity in the data, or it could indicate that
+the searched templates miss a formula that would close the gap. In
+our three-body case study, the ceiling of 0.48 is stable across
+Phases~2--3 and across all 7 binary and 5 unary operations tested,
+which is consistent with---but does not prove---genuine complexity
+beyond the depth-3 formula space.
 
 This diagnostic is novel. Existing symbolic regression methods report
 the best formula found but do not quantify \emph{how much better}
