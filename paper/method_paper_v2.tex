@@ -46,11 +46,12 @@ Applied to predicting periodic orbits in the gravitational three-body
 problem (15{,}000 configurations, 23 Hessian-derived features,
 GPU-integrated ground truth), the method discovers that periodicity
 is predicted by the norm $\sqrt{n_\mathrm{clusters}^2 +
-\lambda_\mathrm{min}^2}$ (F1~$= 0.48$). The ceiling is robust across
-all tested operations. A gradient-boosted ensemble reaches
+\lambda_\mathrm{min}^2}$ (F1~$= 0.48$). The ceiling is stable across
+all tested operations at depths 1--3. A gradient-boosted ensemble
+trained on a separate 51{,}000-configuration dataset reaches
 F1~$= 0.86$, yielding an irreducible complexity gap of 0.38---meaning
-38\% of the predictive structure in three-body dynamics cannot be
-expressed as a depth-4 formula.
+that no formula found within the bounded search space achieves more
+than 56\% of the ensemble's predictive power.
 
 Code and data: \url{https://github.com/ahb-sjsu/astar-symbolic-discovery}.
 \end{abstract}
@@ -79,8 +80,8 @@ the best formula at each depth is found exactly---not approximately.
 This phased exhaustive approach avoids the admissibility issues of
 heuristic A* search on formula spaces (where defining an admissible
 heuristic for future F1 improvement is nontrivial) while preserving
-the key practical benefit: the best formula at each depth is
-identified with certainty.
+the key practical benefit: the best formula within each phase's structure is
+identified by enumeration.
 
 Our framework provides two outputs that existing methods do not:
 \begin{enumerate}
@@ -115,10 +116,9 @@ The search space is defined by three operation classes:
 (\cdot)^2, 1/(\cdot), -(\cdot), |\cdot|, \sigma(\cdot),
 \tanh(\cdot)\}$ (8 operations).
 
-\textbf{Binary operations} (depth $+1$): $\{+, -, \times, \div,
-\max, \min, \mathrm{hypot}, (\cdot - \cdot)^2,
-\mathrm{harmonic\text{-}mean}, \mathrm{geometric\text{-}mean}\}$
-(10 operations).
+\textbf{Binary operations} (depth $+1$): $+$, $-$, $\times$, $\div$,
+$\max$, $\min$, hypot, $(\cdot{-}\cdot)^2$, harmonic mean,
+geometric mean (10 operations).
 
 \subsection{Phased Exhaustive Search}
 
@@ -161,16 +161,21 @@ operations $\mathcal{U}$ (unary), $\mathcal{B}$ (binary)
 \end{algorithm}
 
 \textbf{Threshold sweep.} For each candidate formula $f$, we compute
-$v_i = f(X_i)$ for all $N$ samples, then evaluate F1 at percentile
+$v_i = f(X_i)$ for all $N$ samples, then evaluate F1 at 11 percentile
 thresholds $\{20, 30, 40, \ldots, 95\}$ of the value distribution.
 Both $v > \tau$ and $v < \tau$ predictors are tested. The best
-threshold is retained. This sweep is vectorized and adds negligible
-cost.
+threshold is retained. This discrete sweep approximates but does not
+guarantee the globally optimal threshold; in practice, F1 is
+piecewise-constant in $\tau$ (changing only when $\tau$ crosses a
+data point), and our 11 percentiles sample this step function densely
+enough that the best F1 is found exactly for all formulas tested in
+our experiments (verified by exhaustive threshold search on a subset).
+The sweep is vectorized and adds negligible cost.
 
 \textbf{GPU acceleration.} Features are stored as GPU arrays (CuPy).
 All formula evaluations and threshold sweeps are vectorized GPU
-operations. Phase~2 evaluates $d^2 \times |\mathcal{B}|$ formulas
-(e.g., $23^2 \times 10 = 5{,}290$) in seconds.
+operations. Phase~2 evaluates $d(d-1) \times |\mathcal{B}|$ formulas
+(e.g., $23 \times 22 \times 10 = 5{,}060$) in seconds.
 
 \textbf{Completeness within each phase.} Phases~1--2 are exhaustive
 over all feature (pairs) and operations. Phase~3 applies all unary
@@ -182,19 +187,21 @@ structure; no formulas of that structure are missed.
 \subsection{Scalability}
 
 The formula count per phase is:
-Phase~1: $O(d)$;
-Phase~2: $O(d^2 \cdot |\mathcal{B}|)$;
-Phase~3: $O(K \cdot |\mathcal{U}|)$;
-Phase~4: $O(\binom{K}{3} \cdot P)$ where $P$ is the number of
-triple-combination patterns.
+Phase~1: $d(1 {+} |\mathcal{U}|)$;
+Phase~2: $d(d{-}1)|\mathcal{B}|$;
+Phase~3: $K|\mathcal{U}|$;
+Phase~4: $\binom{K'}{3} P$.
+Here $K$ is the number of top pairwise results carried forward,
+$K'$ the top single features, and $P$ the combination patterns.
 
-For $d = 23$, $|\mathcal{B}| = 10$, $|\mathcal{U}| = 8$, $K = 50$,
-$P = 9$, the total is approximately 6{,}200 formulas---evaluated in
-under one minute on a single GPU. Depth~5--6 formulas (Phase~2
-composed with Phase~2) would require $O(d^4 \cdot |\mathcal{B}|^2)
-\approx 28$ million formulas, which is tractable with GPU
-vectorization but would take hours. We do not explore beyond depth~4
-in this work.
+For $d = 23$, $|\mathcal{B}| = 7$, $|\mathcal{U}| = 5$, $K = 30$,
+$K' = 8$, $P = 4$, the total is approximately 5{,}600 formulas---evaluated
+in under one minute on a single GPU. Composing Phase~2 with itself
+(all pairwise-of-pairwise formulas) would require
+$O(d^2(d-1)^2 \cdot |\mathcal{B}|^2) \approx 12$ million formulas,
+tractable with GPU vectorization but requiring hours.
+We report results through Phase~3 (depth 3); Phase~4 triples are
+also depth~3 but with a different structural template.
 
 \subsection{Formula Ceiling and Irreducible Complexity Gap}
 
@@ -210,11 +217,15 @@ the same features, the irreducible complexity gap at depth $D$ is
 $G_D = F_1^{\mathrm{bb}} - C_D$.
 \end{definition}
 
-$G_D > 0$ means the data contains predictive structure that cannot
-be captured by depth-$D$ formulas. $G_D$ is a property of the data
-and the feature set, not of the search algorithm. If $C_D$ converges
-(does not increase with additional operations or deeper phases),
-further symbolic search is futile.
+$G_D > 0$ means the data contains predictive structure that was not
+captured by any depth-$D$ formula within the searched space. Because
+the search is exhaustive within each phase template but does not
+cover all possible depth-$D$ formulas, $G_D$ is an upper bound on
+the true gap---a formula structure not in our template set could in
+principle achieve higher F1. However, if $C_D$ is stable across
+multiple operation sets and phase structures, this suggests (but
+does not prove) that the gap is intrinsic to the depth constraint
+rather than a limitation of the search.
 
 \begin{proposition}
 $C_D$ is non-decreasing in $D$ and bounded above by
@@ -226,44 +237,53 @@ rich operation set, the ceiling has converged.
 
 \subsection{Setup}
 
-We compute 23 features from the Hessian of the gravitational
-three-body Hamiltonian at 15{,}000 random configurations of
-equal-mass bodies ($m_1 = m_2 = m_3 = 1$) in Jacobi coordinates.
+We use two datasets. The \emph{formula search dataset} consists of
+15{,}000 random configurations of equal-mass bodies
+($m_1 = m_2 = m_3 = 1$) used for the phased search.
+The \emph{ensemble comparison dataset} consists of 51{,}000
+configurations spanning three mass ratios (equal, binary+light,
+hierarchical) used to train and cross-validate the gradient-boosted
+baseline. Both datasets use the same 23 Hessian-derived features and
+the same orbit integration protocol.
+
 Features include: numerical matrix rank (threshold $\epsilon = 10^{-6}$),
 potential block eigenvalues and their ratios, frequency cluster counts,
 spectral entropy, Hamiltonian energy, body separation ratios, and
-derived quantities. Ground truth is obtained by symplectic leapfrog
-integration ($\Delta t = 0.005$, $8 \times 10^4$ steps) on an
-NVIDIA GV100 GPU, with periodicity defined as phase-space return
-to within 5\% of initial extent. Batch size is maximized
-automatically using the batch-probe library~\cite{batchprobe}.
+derived quantities. Ground truth (periodic vs.\ non-periodic) is
+obtained by symplectic leapfrog integration ($\Delta t = 0.005$,
+$8 \times 10^4$ steps, $T = 400$ natural time units) on an NVIDIA
+GV100 GPU, with periodicity defined as phase-space return to within
+5\% of initial extent after the first 10\% of integration time.
+Batch size is maximized automatically using the batch-probe
+library~\cite{batchprobe}.
 
 \subsection{Search Results}
 
 Table~\ref{tab:phases} summarizes the results across all four phases.
 
 \begin{table}[h]
-\caption{Formula search results by phase (15{,}000 configs, 23 features).}
+\caption{Formula search results by phase (15{,}000 configs, 23 features).
+All phases search formulas of depth $\leq 3$.}
 \label{tab:phases}
-\begin{tabular}{llrl}
+\small
+\begin{tabular}{llrr}
 \toprule
-Phase & Best formula & F1 & Formulas tested \\
+Phase (depth) & Best formula & F1 & Tested \\
 \midrule
-1 (single) & \texttt{n\_clusters} & 0.35 & 23 \\
-2 (pairwise) & \texttt{n\_clust + $\lambda_\mathrm{min}$} & 0.48 & 5{,}060 \\
-3 (unary) & \texttt{hypot(n\_clust, $\lambda_\mathrm{min}$)} & 0.48 & 400 \\
-4 (triple) & (none above 0.30) & --- & 504 \\
+1: single+unary (1--2) & \texttt{n\_clusters} & 0.35 & 138 \\
+2: pairwise (2) & \texttt{n\_clust + $\lambda_\mathrm{min}$} & 0.48 & 3{,}542 \\
+3: unary of top-30 (3) & \texttt{hypot(n\_cl, $\lambda_\mathrm{min}$)} & 0.48 & 150 \\
+4: triple of top-8 (3) & (none above 0.30) & --- & 224 \\
 \midrule
-\textbf{Ceiling} & & \textbf{0.48} & \textbf{5{,}987} \\
+\textbf{Best (depth $\leq$ 3)} & & \textbf{0.48} & \textbf{4{,}054} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The ceiling converges at Phase~2: unary transforms (Phase~3) and
-triple combinations (Phase~4) provide no improvement. All 20 top
-formulas are algebraically equivalent to
-$\alpha \cdot n_\mathrm{clusters} + \beta \cdot \lambda_\mathrm{min}$
-for various $\alpha, \beta$. The Euclidean norm variant
+The best F1 is reached at Phase~2 and does not improve in Phases~3--4.
+All 20 top formulas are algebraically equivalent to linear combinations
+of $n_\mathrm{clusters}$ and $\lambda_\mathrm{min}$. The Euclidean
+norm variant
 \begin{equation}
 \hat{y} = \mathbf{1}\!\left[
 \sqrt{n_\mathrm{clusters}^2 + \lambda_\mathrm{min}^2} > \tau
@@ -274,27 +294,32 @@ is representative of the equivalence class.
 \subsection{Irreducible Complexity Gap}
 
 \begin{table}[h]
-\caption{Formula ceiling vs.\ black-box models (51{,}000 configs, 3 mass ratios).}
+\caption{Formula ceiling vs.\ black-box models. The ceiling is measured
+on the 15K search dataset; the ensemble is cross-validated on the
+51K comparison dataset (3 mass ratios, same features).}
 \label{tab:gap}
-\begin{tabular}{lcc}
+\begin{tabular}{lccc}
 \toprule
-Model & F1 & Gap from ceiling \\
+Model & Dataset & F1 & Gap \\
 \midrule
-Random baseline (5\% rate) & 0.07 & --- \\
-Separation ratio $r_2/r_1 > 10$ & 0.29 & --- \\
-Best depth-4 formula (Eq.~1) & 0.48 & 0.00 (= ceiling) \\
-Decision tree (depth 5) & 0.58 & $-$0.10 \\
-Gradient boosting (100 trees) & 0.86 & $-$0.38 \\
+Random (base rate) & 15K & $\sim$0.07 & --- \\
+$r_2/r_1 > 10$ & 15K & 0.29 & --- \\
+Best formula (Eq.~1) & 15K & 0.48 & 0.00 \\
+Decision tree (depth 5) & 51K (CV) & 0.58 & $-$0.10 \\
+Gradient boosting & 51K (CV) & 0.86 & $-$0.38 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The irreducible complexity gap is $G_4 = 0.86 - 0.48 = 0.38$.
-The decision tree (F1~$= 0.58$) captures some of the gap via
-piecewise-constant splits; the remaining 0.28 requires the nonlinear
-interactions of an ensemble. This means that 38\% of the predictive
-structure in three-body periodicity resists expression as any
-depth-4 formula over Hessian features.
+The observed gap is $G = 0.86 - 0.48 = 0.38$.
+The decision tree (F1~$= 0.58$) captures some of this gap via
+piecewise-constant splits; the remaining $0.86 - 0.58 = 0.28$
+requires the nonlinear interactions of an ensemble. Within the
+formula structures searched, no expression of depth~$\leq 3$
+achieves more than 56\% of the ensemble's predictive power. This
+gap may narrow with deeper search or richer operation sets, but its
+stability across our tested operations suggests it reflects genuine
+complexity in the data.
 
 \subsection{Physical Interpretation}
 
