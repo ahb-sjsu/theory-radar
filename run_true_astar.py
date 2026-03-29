@@ -178,22 +178,28 @@ def astar_search(
 
         # Expand: unary operations
         for uname, ufn in UNARY_OPS.items():
-            # Monotone pruning: skip monotone ops (proven F1-invariant)
-            if uname in MONOTONE_OPS:
-                pruned_monotone += 1
-                continue
-
             try:
                 child_vals = ufn(state.values)
                 child_vals = np.nan_to_num(child_vals, nan=0, posinf=1e10, neginf=-1e10)
                 child_auc = auroc(child_vals, actual)
 
-                if child_auc < auroc_prune:
+                # Monotone ops: F1 is invariant (Theorem 1), so skip
+                # the expensive F1 computation. BUT still add the child
+                # to the frontier — its descendants (e.g., (log x)^2)
+                # may differ from descendants of x (e.g., x^2).
+                if uname in MONOTONE_OPS:
+                    child_f1 = state.f1  # reuse parent's F1
+                    pruned_monotone += 1
+                elif child_auc < auroc_prune:
+                    # Low AUROC: skip F1 evaluation (screening heuristic).
+                    # NOTE: this IS subtree pruning and is NOT provably
+                    # safe — a descendant could have higher AUROC.
+                    # We accept this as an empirical heuristic, not a theorem.
                     pruned_auroc += 1
                     continue
-
-                child_f1 = exact_optimal_f1(child_vals, actual)
-                evaluated += 1
+                else:
+                    child_f1 = exact_optimal_f1(child_vals, actual)
+                    evaluated += 1
                 child_cost = state.cost + 1
                 child_desc = f"{uname}({state.formula_desc})"
                 h = -child_auc
@@ -229,6 +235,12 @@ def astar_search(
                     child_auc = auroc(child_vals, actual)
 
                     if child_auc < auroc_prune:
+                        # NOTE: This is subtree pruning and is an empirical
+                        # screening heuristic, NOT a provably safe operation.
+                        # A descendant of this low-AUROC formula could have
+                        # high AUROC (e.g., z with low AUROC → z^2 with high).
+                        # We accept the risk of missing such formulas in
+                        # exchange for the computational savings.
                         pruned_auroc += 1
                         continue
 
