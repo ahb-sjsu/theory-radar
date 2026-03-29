@@ -12,7 +12,7 @@
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-D}}Scalability}{2}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-E}}Formula Ceiling and Irreducible Complexity Gap}{2}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {III}Benchmark Validation}{2}{}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Formula ceiling across domains. Both ceiling and GB use 5-fold CV: formula selection and threshold tuning occur on training folds only, with F1 measured on each held-out fold. Gap $= \text  {GB} - C$.}}{2}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Formula ceiling across domains (5-fold CV; ceiling and GB are both fold-averaged held-out F1). Formulas shown are the most frequently selected across folds; see Table~\ref {tab:folds} for per-fold variation. Gap $= \text  {GB} - C$.}}{2}{}\protected@file@percent }
 \newlabel{tab:bench}{{I}{2}{}{table.1}{}}
 \citation{batchprobe}
 \citation{cranmer2023interpretable}
@@ -28,7 +28,7 @@
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-E}}Comparison to PySR}{3}{}\protected@file@percent }
 \@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Regression: our method vs.\ PySR (R$^2$, 3{,}000 samples).}}{3}{}\protected@file@percent }
 \newlabel{tab:pysr}{{IV}{3}{}{table.4}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces Classification F1: our method vs.\ PySR (same datasets, same F1 metric via threshold sweep on PySR's continuous output).}}{3}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces Classification F1: our method vs.\ PySR. PySR fits $y \in \{0,1\}$ as regression and output is thresholded for F1. Ionosphere and Three-body omitted due to PySR runtime ($>$5~min per fold at $d > 20$).}}{3}{}\protected@file@percent }
 \newlabel{tab:pysr_class}{{V}{3}{}{table.5}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-F}}Convergence and Ablation}{4}{}\protected@file@percent }
 \@writefile{lot}{\contentsline {table}{\numberline {VI}{\ignorespaces Ceiling convergence: F1 at each phase.}}{4}{}\protected@file@percent }

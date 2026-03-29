@@ -256,10 +256,10 @@ phased search on four standard classification datasets and compare
 the formula ceiling to gradient-boosted ensembles (Table~\ref{tab:bench}).
 
 \begin{table}[h]
-\caption{Formula ceiling across domains. Both ceiling and GB use
-5-fold CV: formula selection and threshold tuning occur on training
-folds only, with F1 measured on each held-out fold.
-Gap $= \text{GB} - C$.}
+\caption{Formula ceiling across domains (5-fold CV; ceiling and GB
+are both fold-averaged held-out F1). Formulas shown are the most
+frequently selected across folds; see Table~\ref{tab:folds} for
+per-fold variation. Gap $= \text{GB} - C$.}
 \label{tab:bench}
 \scriptsize
 \begin{tabular}{@{}lccrl@{}}
@@ -267,7 +267,7 @@ Gap $= \text{GB} - C$.}
 Dataset ($d$) & Ceiling & GB F1 (CV) & Gap & Formula \\
 \midrule
 Circles (2) & 0.996 & $0.989{\pm}.01$ & $-$0.01 & \texttt{hypot} \\
-Breast Ca.\ (30) & 0.948 & $0.962{\pm}.01$ & +0.01 & \texttt{f7+f22} \\
+Breast Ca.\ (30) & 0.937 & $0.950{\pm}.02$ & +0.01 & \texttt{f0+f7} \\
 Ionosphere (34) & 0.902 & $0.934{\pm}.03$ & +0.03 & \texttt{log(f6 min f5)} \\
 Moons (2) & 0.833 & $0.969{\pm}.01$ & +0.14 & \texttt{x2} \\
 Three-body (23) & 0.480 & $0.830{\pm}.02$ & +0.35 & \texttt{hypot(n,\,$\lambda$)} \\
@@ -335,9 +335,10 @@ Phase (depth) & Best formula & F1 & Tested \\
 \end{table}
 
 The best F1 is reached at Phase~2 and does not improve in Phases~3--4.
-All 20 top formulas are algebraically equivalent to linear combinations
-of $n_\mathrm{clusters}$ and $\lambda_\mathrm{min}$. The Euclidean
-norm variant
+All 20 top formulas achieve the same F1 and depend only on
+$n_\mathrm{clusters}$ and $\lambda_\mathrm{min}$ (no third feature
+improves the score). They include linear combinations, products, and
+norms of these two features. The Euclidean norm variant
 \begin{equation}
 \hat{y} = \mathbf{1}\!\left[
 \sqrt{n_\mathrm{clusters}^2 + \lambda_\mathrm{min}^2} > \tau
@@ -387,8 +388,9 @@ indicating timescale separation.
 nonzero, indicating the system is gravitationally bound (not
 escaping).
 \end{itemize}
-The Euclidean norm indicates these contribute independently---there
-is no synergy or interaction between them. Periodicity requires
+The best-performing shallow formulas did not require an explicit
+interaction term between these two features, which is consistent
+with approximately independent contributions. Periodicity requires
 \emph{both} separated timescales \emph{and} sufficient binding.
 
 \subsection{Comparison to PySR}
@@ -423,24 +425,26 @@ binary labels as continuous regression targets and thresholding the
 output for F1 (Table~\ref{tab:pysr_class}).
 
 \begin{table}[h]
-\caption{Classification F1: our method vs.\ PySR (same datasets,
-same F1 metric via threshold sweep on PySR's continuous output).}
+\caption{Classification F1: our method vs.\ PySR. PySR fits
+$y \in \{0,1\}$ as regression and output is thresholded for F1.
+Ionosphere and Three-body omitted due to PySR runtime ($>$5~min
+per fold at $d > 20$).}
 \label{tab:pysr_class}
 \scriptsize
 \begin{tabular}{@{}lccc@{}}
 \toprule
 Dataset & Ours & PySR & PySR formula \\
 \midrule
-Circles & \textbf{0.996} & 0.996 & \texttt{sq(sq(x2*x2)...)} \\
-Moons & 0.833 & 0.834 & \texttt{log(2.05 - x2)} \\
-Breast Ca. & \textbf{0.948} & 0.927 & \texttt{sqrt(exp(...))} \\
+Circles & \textbf{0.996} & 0.996 & $x_2^8$ (deep nesting) \\
+Moons & 0.833 & 0.834 & $\log(2.05 - x_2)$ \\
+Breast Ca. & \textbf{0.937} & 0.927 & $\sqrt{\exp(\cdots)}$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 Our method matches PySR on Circles (both find the radial boundary)
 and Moons (both limited by the nonlinear boundary), and outperforms
-PySR on Breast Cancer ($0.948$ vs.\ $0.927$). PySR's deeper trees do
+PySR on Breast Cancer ($0.937$ vs.\ $0.927$). PySR's deeper trees do
 not help on these datasets because the optimal formulas are shallow.
 The key distinction remains: our framework additionally provides the
 ceiling diagnostic and complexity gap.
