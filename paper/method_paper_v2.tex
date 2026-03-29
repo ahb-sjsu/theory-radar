@@ -174,10 +174,22 @@ enough that the reported F1 matches exhaustive threshold search on
 a verified subset (median absolute error $< 0.001$).
 The sweep is vectorized and adds negligible cost.
 
+\textbf{Cross-validation protocol.} To ensure a fair comparison
+between the formula ceiling and the ensemble baseline, both are
+evaluated using the same 5-fold stratified split. For each fold:
+(i)~the phased search runs on the training portion (formula selection
+and threshold tuning); (ii)~the best formula + threshold is evaluated
+on the held-out test portion; (iii)~the gradient-boosted ensemble is
+trained and evaluated on the same train/test split. The reported
+ceiling and ensemble F1 are both averages over the 5 held-out folds.
+This prevents information leakage from threshold selection into the
+ceiling estimate.
+
 \textbf{GPU acceleration.} Features are stored as GPU arrays (CuPy).
 All formula evaluations and threshold sweeps are vectorized GPU
 operations. Phase~2 evaluates $d(d-1) \times |\mathcal{B}|$ formulas
-(e.g., $23 \times 22 \times 10 = 5{,}060$) in seconds.
+(e.g., $23 \times 22 \times 7 = 3{,}542$ with our 7-operation set)
+in seconds.
 
 \textbf{Completeness within each phase.} Phases~1--2 are exhaustive
 over all feature (pairs) and operations. Phase~3 applies all unary
@@ -242,8 +254,10 @@ phased search on four standard classification datasets and compare
 the formula ceiling to gradient-boosted ensembles (Table~\ref{tab:bench}).
 
 \begin{table}[h]
-\caption{Formula ceiling across domains. GB F1 is 5-fold CV
-($\pm$ std); ceiling is deterministic (no variance). Gap $= \text{GB} - C$.}
+\caption{Formula ceiling across domains. Both ceiling and GB use
+5-fold CV: formula selection and threshold tuning occur on training
+folds only, with F1 measured on each held-out fold.
+Gap $= \text{GB} - C$.}
 \label{tab:bench}
 \small
 \begin{tabular}{lccrl}
@@ -400,8 +414,15 @@ PySR recovers the exact formula on 3/4 problems by exploring deeper
 trees (depth 10+). Our method matches PySR on Gravity and Coulomb
 (where depth~2 suffices: $m_1 m_2 / r^2$) but misses $x_1^2 + x_2^2$
 (which requires two additive squared terms---a structure outside our
-Phase~2 template). The key distinction: PySR produces a single best
-formula; our method produces the ceiling + gap diagnostic.
+Phase~2 template). Note that this comparison uses regression
+(R$^2$) rather than our method's native classification (F1) objective,
+so it tests formula-recovery ability rather than the ceiling
+framework directly. A classification-side comparison against PySR
+(adapting its output to a thresholded binary predictor) would provide
+a more direct test but is not yet implemented. The key distinction
+between the methods remains: PySR produces a single best formula at
+each complexity; our framework additionally measures the ceiling and
+gap.
 
 \subsection{Convergence and Ablation}
 
@@ -523,7 +544,7 @@ ensemble) and where they do not (three-body, Moons).
 
 The method is domain-general, requiring only a feature matrix and
 binary labels. It is practical for feature spaces up to $d \approx 50$
-and formula depths up to 4, with GPU acceleration enabling evaluation
+and formula depths up to 3, with GPU acceleration enabling evaluation
 of $\sim$6{,}000 formulas in under one minute.
 
 \begin{thebibliography}{9}
