@@ -3,14 +3,14 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "symbolic-search"
-version = "0.1.0"
-description = "Phased exhaustive symbolic formula discovery with ceiling detection"
+name = "theory-radar"
+version = "0.2.0"
+description = "A* formula search with provable pruning for interpretable symbolic prediction"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{name = "Andrew H. Bond"}]
-keywords = ["symbolic-regression", "formula-discovery", "scientific-discovery", "interpretable-ml"]
+keywords = ["symbolic-regression", "formula-discovery", "scientific-discovery", "interpretable-ml", "theory-radar", "a-star"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
