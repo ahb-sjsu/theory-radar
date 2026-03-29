@@ -412,19 +412,38 @@ Thin lens & 0.93 & 0.96 & 7s & approximate \\
 \end{tabular}
 \end{table}
 
-PySR recovers the exact formula on 3/4 problems by exploring deeper
-trees (depth 10+). Our method matches PySR on Gravity and Coulomb
-(where depth~2 suffices: $m_1 m_2 / r^2$) but misses $x_1^2 + x_2^2$
-(which requires two additive squared terms---a structure outside our
-Phase~2 template). Note that this comparison uses regression
-(R$^2$) rather than our method's native classification (F1) objective,
-so it tests formula-recovery ability rather than the ceiling
-framework directly. A classification-side comparison against PySR
-(adapting its output to a thresholded binary predictor) would provide
-a more direct test but is not yet implemented. The key distinction
-between the methods remains: PySR produces a single best formula at
-each complexity; our framework additionally measures the ceiling and
-gap.
+On regression (Table~\ref{tab:pysr}), PySR recovers exact formulas on
+3/4 problems by exploring deeper trees (depth~10+). Our method matches
+on Gravity and Coulomb (depth~2 suffices) but misses $x_1^2 + x_2^2$
+(requires multi-term addition outside our Phase~2 template).
+
+For a direct apples-to-apples comparison on the paper's classification
+task, we also ran PySR on the same classification datasets, fitting
+binary labels as continuous regression targets and thresholding the
+output for F1 (Table~\ref{tab:pysr_class}).
+
+\begin{table}[h]
+\caption{Classification F1: our method vs.\ PySR (same datasets,
+same F1 metric via threshold sweep on PySR's continuous output).}
+\label{tab:pysr_class}
+\scriptsize
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Dataset & Ours & PySR & PySR formula \\
+\midrule
+Circles & \textbf{0.996} & 0.996 & \texttt{sq(sq(x2*x2)...)} \\
+Moons & 0.833 & 0.834 & \texttt{log(2.05 - x2)} \\
+Breast Ca. & \textbf{0.948} & 0.927 & \texttt{sqrt(exp(...))} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Our method matches PySR on Circles (both find the radial boundary)
+and Moons (both limited by the nonlinear boundary), and outperforms
+PySR on Breast Cancer ($0.948$ vs.\ $0.927$). PySR's deeper trees do
+not help on these datasets because the optimal formulas are shallow.
+The key distinction remains: our framework additionally provides the
+ceiling diagnostic and complexity gap.
 
 \subsection{Convergence and Ablation}
 
@@ -454,6 +473,30 @@ drops the ceiling from 0.996 to 0.796. All other operations are
 redundant---\texttt{hypot} alone captures the circular decision
 boundary. This demonstrates that the ablation identifies which
 operations are structurally necessary.
+
+\textbf{Fold stability.} Table~\ref{tab:folds} shows per-fold
+formula selection across the 5-fold CV. On Circles, the same formula
+(\texttt{x1 hypot x2}) is selected on all 5 folds with negligible
+F1 variance ($\pm 0.001$). On Moons, \texttt{x2} is selected
+unanimously. On Breast Cancer, two formula families alternate
+(\texttt{f0+f7} and \texttt{f3 max f7}), reflecting the dataset's
+multiple near-equivalent feature pairs. In all cases, the ceiling
+is stable ($\sigma \leq 0.004$).
+
+\begin{table}[h]
+\caption{Per-fold ceiling stability (5-fold CV).}
+\label{tab:folds}
+\scriptsize
+\begin{tabular}{@{}lccl@{}}
+\toprule
+Dataset & Ceiling ($\mu \pm \sigma$) & GB ($\mu \pm \sigma$) & Formula (folds) \\
+\midrule
+Circles & $0.996 \pm 0.001$ & $0.985 \pm 0.007$ & \texttt{hypot} (5/5) \\
+Moons & $0.833 \pm 0.004$ & $0.966 \pm 0.008$ & \texttt{x2} (5/5) \\
+Breast Ca. & $0.937 \pm 0.004$ & $0.950 \pm 0.019$ & \texttt{f0+f7} (2/5) \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Runtime Scaling}
 
