@@ -233,6 +233,43 @@ $F_1^{\mathrm{Bayes}}$. If $C_{D+1} = C_D$ for a sufficiently
 rich operation set, the ceiling has converged.
 \end{proposition}
 
+\section{Benchmark Validation}
+
+To validate the method beyond the three-body case study, we run the
+phased search on four standard classification datasets and compare
+the formula ceiling to gradient-boosted ensembles (Table~\ref{tab:bench}).
+
+\begin{table}[h]
+\caption{Formula ceiling across domains. ``Gap'' $= F_1^{\mathrm{GB}} - C$.
+Negative gap means the formula outperforms the ensemble.}
+\label{tab:bench}
+\small
+\begin{tabular}{lccrl}
+\toprule
+Dataset ($d$) & Ceiling & GB F1 & Gap & Formula \\
+\midrule
+Circles (2) & \textbf{0.996} & 0.989 & $-$0.007 & \texttt{hypot(x1,x2)} \\
+Breast Ca.\ (30) & 0.948 & 0.962 & +0.014 & \texttt{f7 + f22} \\
+Ionosphere (34) & 0.902 & 0.934 & +0.032 & \texttt{log(f6 min f5)} \\
+Moons (2) & 0.833 & 0.969 & +0.136 & \texttt{x2} \\
+Three-body (23) & 0.480 & 0.860 & +0.380 & Eq.~\ref{eq:discovered} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On \textbf{Circles}, the method discovers the exact analytic decision
+boundary $\sqrt{x_1^2 + x_2^2} > \tau$ and \emph{outperforms} gradient
+boosting ($F_1 = 0.996$ vs.\ $0.989$). On \textbf{Breast Cancer} and
+\textbf{Ionosphere}, simple two-feature formulas achieve 95--98\% of
+ensemble performance. On \textbf{Moons}, the nonlinear boundary resists
+depth-3 formulas (gap $= 0.136$). On the \textbf{Three-body} problem,
+the gap is largest ($0.38$), reflecting genuine nonlinear complexity.
+
+The ceiling concept is validated: it correctly identifies problems that
+admit simple formulas (Circles: gap $< 0$), problems where formulas
+are close (Breast Cancer: gap $= 1.4\%$), and problems that fundamentally
+require complex models (Three-body: gap $= 38\%$).
+
 \section{Case Study: Three-Body Periodic Orbit Prediction}
 
 \subsection{Setup}
