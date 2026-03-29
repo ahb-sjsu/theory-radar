@@ -150,6 +150,150 @@ def block_structure(H: NDArray, threshold: float = 1e-6) -> dict:
     }
 
 
+def tucker_decomposition(T: NDArray, ranks: tuple[int, ...] | None = None) -> dict:
+    """Tucker decomposition of the rank-6 coupling tensor.
+
+    Decomposes T (shape 2,3,2,2,3,2) as:
+        T ≈ G ×₁ U_body1 ×₂ U_spatial1 ×₃ U_phase1 ×₄ U_body2 ×₅ U_spatial2 ×₆ U_phase2
+
+    where G is the core tensor and U_i are factor matrices per mode.
+
+    Args:
+        T: Rank-6 tensor, shape (2, 3, 2, 2, 3, 2).
+        ranks: Target ranks per mode. None = full rank (no truncation).
+
+    Returns:
+        Dictionary with:
+            core: core tensor G
+            factors: list of 6 factor matrices [U_body1, U_spatial1, ...]
+            mode_ranks: effective rank per mode
+            mode_explained_variance: fraction of variance per mode
+            reconstruction_error: relative error ||T - T_approx|| / ||T||
+    """
+    import tensorly
+    from tensorly.decomposition import tucker
+
+    if ranks is None:
+        ranks = T.shape  # full rank
+
+    core, factors = tucker(T, rank=ranks)
+
+    # Compute reconstruction error
+    T_approx = tensorly.tucker_to_tensor((core, factors))
+    error = np.linalg.norm(T - T_approx) / (np.linalg.norm(T) + 1e-30)
+
+    # Effective rank per mode via SVD of the unfolding
+    mode_names = ["body_1", "spatial_1", "phase_1", "body_2", "spatial_2", "phase_2"]
+    mode_ranks = []
+    mode_variance = []
+
+    for mode in range(6):
+        unfolding = tensorly.unfold(T, mode)
+        sv = np.linalg.svd(unfolding, compute_uv=False)
+        total_var = np.sum(sv**2)
+        # Effective rank: how many singular values needed for 99% variance
+        cumvar = np.cumsum(sv**2) / (total_var + 1e-30)
+        eff_rank = int(np.searchsorted(cumvar, 0.99)) + 1
+        mode_ranks.append(eff_rank)
+        # Variance in first component
+        mode_variance.append(sv[0]**2 / (total_var + 1e-30) if total_var > 0 else 0)
+
+    return {
+        "core": core,
+        "factors": factors,
+        "mode_names": mode_names,
+        "mode_ranks": mode_ranks,
+        "mode_explained_variance": mode_variance,
+        "reconstruction_error": error,
+    }
+
+
+def multilinear_rank(T: NDArray) -> list[int]:
+    """Compute the multilinear rank of a tensor (rank along each mode).
+
+    The multilinear rank (r1, r2, ..., r6) gives the effective dimensionality
+    along each mode independently. This is strictly more informative than
+    the matrix rank of the flattened tensor.
+
+    Args:
+        T: Tensor of arbitrary shape.
+
+    Returns:
+        List of ranks, one per mode.
+    """
+    import tensorly
+
+    ranks = []
+    for mode in range(len(T.shape)):
+        unfolding = tensorly.unfold(T, mode)
+        sv = np.linalg.svd(unfolding, compute_uv=False)
+        # Count singular values above threshold
+        if sv[0] < 1e-30:
+            ranks.append(0)
+        else:
+            ranks.append(int(np.sum(sv / sv[0] > 1e-6)))
+    return ranks
+
+
+def mode_coupling_analysis(T: NDArray) -> dict:
+    """Analyze coupling between modes of the rank-6 tensor.
+
+    Determines which pairs of modes (body-body, spatial-spatial,
+    phase-phase, body-spatial, etc.) are coupled vs independent.
+
+    Args:
+        T: Rank-6 tensor, shape (2, 3, 2, 2, 3, 2).
+
+    Returns:
+        Dictionary with coupling strengths between mode pairs.
+    """
+    import tensorly
+
+    mode_names = ["body_1", "spatial_1", "phase_1", "body_2", "spatial_2", "phase_2"]
+    n_modes = 6
+
+    # Compute coupling via mutual information of mode unfoldings
+    # Proxy: correlation between singular value spectra
+    spectra = []
+    for mode in range(n_modes):
+        unfolding = tensorly.unfold(T, mode)
+        sv = np.linalg.svd(unfolding, compute_uv=False)
+        spectra.append(sv)
+
+    # Pairwise coupling: how much does one mode's spectrum predict another's?
+    # Use normalized Frobenius inner product of unfoldings
+    couplings = {}
+    for i in range(n_modes):
+        for j in range(i + 1, n_modes):
+            # Contract T over all modes except i and j
+            # Simpler proxy: check if tensor is separable in modes i vs j
+            # by comparing rank of (i,j)-unfolding to product of mode ranks
+            combined = list(range(n_modes))
+            # Reshape to group mode i and j together vs everything else
+            perm = [i, j] + [k for k in range(n_modes) if k not in (i, j)]
+            T_perm = np.transpose(T, perm)
+            shape_ij = T.shape[i] * T.shape[j]
+            shape_rest = int(np.prod([T.shape[k] for k in range(n_modes) if k not in (i, j)]))
+            mat = T_perm.reshape(shape_ij, shape_rest)
+
+            sv = np.linalg.svd(mat, compute_uv=False)
+            total = np.sum(sv**2)
+            if total > 1e-30:
+                # Concentration: how much is in the first singular value
+                concentration = sv[0]**2 / total
+            else:
+                concentration = 0
+
+            key = f"{mode_names[i]}-{mode_names[j]}"
+            couplings[key] = {
+                "concentration": concentration,
+                "eff_rank": int(np.sum(sv / (sv[0] + 1e-30) > 1e-6)),
+                "max_rank": min(shape_ij, shape_rest),
+            }
+
+    return couplings
+
+
 def participation_ratio(H: NDArray) -> float:
     """Compute the participation ratio of singular values.
 

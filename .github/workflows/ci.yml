@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install numpy scipy tensorly matplotlib h5py
+          pip install pytest ruff
+
+      - name: Lint with ruff
+        run: ruff check tensor_3body/ tests/ --target-version py310
+
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+      - name: Run coarse Phase 1 (smoke test)
+        run: |
+          python run_phase1.py --resolution coarse --scenario equal --workers 2
+          ls -la results/phase1/
+
+      - name: Run Phase 2 validation
+        run: python run_phase2.py
