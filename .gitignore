@@ -11,3 +11,5 @@ build/
 .env
 *.log
 results/
+zenodo_upload.zip
+zenodo_data/*.npz

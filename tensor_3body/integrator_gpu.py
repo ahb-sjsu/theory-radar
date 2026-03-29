@@ -89,6 +89,50 @@ def _hamiltonian_batch(
     return T + V
 
 
+def probe_max_orbits(
+    m1: float, m2: float, m3: float,
+    dt: float = 0.005,
+    gpu_id: int = 0,
+    headroom: float = 0.2,
+) -> int:
+    """Find the maximum number of orbits that fit in GPU memory.
+
+    Uses batch-probe's generic ``probe()`` with a CuPy leapfrog workload.
+    """
+    if not HAS_CUPY:
+        raise ImportError("CuPy not available")
+
+    from batch_probe import probe
+
+    mu1 = m1 * m2 / (m1 + m2)
+    mu2 = m3 * (m1 + m2) / (m1 + m2 + m3)
+
+    def _work(n: int) -> None:
+        with cp.cuda.Device(gpu_id):
+            z = cp.random.randn(n, 12).astype(cp.float64)
+            z0 = z.copy()
+            for _ in range(50):
+                rho1, rho2 = z[:, 0:3], z[:, 3:6]
+                pi1, pi2 = z[:, 6:9], z[:, 9:12]
+                a1, a2 = _acceleration_batch(rho1, rho2, m1, m2, m3)
+                pi1 = pi1 + 0.5 * dt * mu1 * a1
+                pi2 = pi2 + 0.5 * dt * mu2 * a2
+                rho1 = rho1 + dt * pi1 / mu1
+                rho2 = rho2 + dt * pi2 / mu2
+                a1, a2 = _acceleration_batch(rho1, rho2, m1, m2, m3)
+                pi1 = pi1 + 0.5 * dt * mu1 * a1
+                pi2 = pi2 + 0.5 * dt * mu2 * a2
+                z[:, 0:3], z[:, 3:6] = rho1, rho2
+                z[:, 6:9], z[:, 9:12] = pi1, pi2
+            # Also allocate the tracking arrays that real integration needs
+            _ = cp.linalg.norm(z - z0, axis=1)
+            cp.cuda.runtime.deviceSynchronize()
+
+    safe = probe(_work, low=1000, high=500_000, headroom=headroom, backend="cupy")
+    log.info("batch-probe: max safe orbits = %d on GPU %d", safe, gpu_id)
+    return safe
+
+
 def integrate_batch(
     z0_np: NDArray,
     m1: float, m2: float, m3: float,
@@ -96,6 +140,7 @@ def integrate_batch(
     n_steps: int = 50000,
     check_every: int = 1000,
     gpu_id: int = 0,
+    auto_batch: bool = True,
 ) -> dict:
     """Integrate N orbits simultaneously on GPU.
 
@@ -122,6 +167,29 @@ def integrate_batch(
         N = z0_np.shape[0]
         mu1 = m1 * m2 / (m1 + m2)
         mu2 = m3 * (m1 + m2) / (m1 + m2 + m3)
+
+        # Auto-batch: probe max size and split if needed
+        if auto_batch and N > 5000:
+            max_batch = probe_max_orbits(m1, m2, m3, dt=dt, gpu_id=gpu_id)
+            if N > max_batch:
+                log.info("Auto-batching: %d orbits in chunks of %d", N, max_batch)
+                all_results = {
+                    "return_distance": np.zeros(N),
+                    "return_time": np.zeros(N),
+                    "is_periodic": np.zeros(N, dtype=bool),
+                    "energy_error": np.zeros(N),
+                    "collision": np.zeros(N, dtype=bool),
+                }
+                for start in range(0, N, max_batch):
+                    end = min(start + max_batch, N)
+                    chunk = integrate_batch(
+                        z0_np[start:end], m1, m2, m3,
+                        dt=dt, n_steps=n_steps, check_every=check_every,
+                        gpu_id=gpu_id, auto_batch=False,
+                    )
+                    for key in all_results:
+                        all_results[key][start:end] = chunk[key]
+                return all_results
 
         # Transfer to GPU
         z = cp.asarray(z0_np, dtype=cp.float64)
