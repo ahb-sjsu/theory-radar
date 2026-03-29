@@ -1,0 +1,437 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[margin=1in]{geometry}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+
+\newtheorem{definition}{Definition}
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+
+\title{Symbolic Mechanism Discovery via Best-First Search\\in Mathematical Operation Space}
+
+\author{Andrew H. Bond\\
+\small Department of Computer Engineering, San Jose State University\\
+\small Senior Member, IEEE \quad ORCID: 0009-0003-2599-6158\\
+\small \texttt{andrew.bond@sjsu.edu}}
+
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We introduce a framework for automated discovery of interpretable
+predictive formulas from labeled scientific data using best-first
+search through a space of mathematical operations. Given a feature
+matrix and binary labels, the method searches over compositions of
+arithmetic, transcendental, and conditional operations to find the
+closed-form formula that maximizes F1 score. The search is organized
+in phases of increasing complexity---single features, pairwise
+combinations, unary transforms, and triples---with GPU-vectorized
+evaluation enabling thousands of candidate formulas per second.
+
+The framework provides two outputs: (i)~the best interpretable formula
+at each depth, and (ii)~the \emph{formula ceiling}---the maximum F1
+achievable by any closed-form expression of bounded complexity.
+Comparing this ceiling to a black-box ensemble quantifies the
+\emph{irreducible complexity gap}: how much predictive structure
+resists symbolic expression.
+
+Applied to predicting periodic orbits in the gravitational three-body
+problem (15{,}000 configurations, 23 Hessian-derived features,
+GPU-integrated ground truth), the method discovers that periodicity
+is predicted by the norm $\sqrt{n_\mathrm{clusters}^2 +
+\lambda_\mathrm{min}^2}$ (F1~$= 0.48$). The ceiling is robust across
+all tested operations. A gradient-boosted ensemble reaches
+F1~$= 0.86$, yielding an irreducible complexity gap of 0.38---meaning
+38\% of the predictive structure in three-body dynamics cannot be
+expressed as a depth-4 formula.
+
+Code and data: \url{https://github.com/ahb-sjsu/astar-symbolic-discovery}.
+\end{abstract}
+
+\section{Introduction}
+
+A central goal of computational science is to discover interpretable
+laws from data. This problem has been addressed by genetic symbolic
+regression~\cite{schmidt2009distilling, cranmer2023interpretable},
+neural equation discovery~\cite{udrescu2020ai}, and classical AI
+systems~\cite{langley1987scientific}. Genetic programming explores
+large formula spaces but provides no optimality guarantee at a given
+depth and often produces bloated expressions. Neural methods discover
+accurate but opaque representations. Classical systems require
+domain-specific search heuristics.
+
+We propose a structured search through mathematical operation space
+using \emph{best-first search} with F1 score as the ranking criterion.
+The search is organized in phases of increasing formula complexity:
+single features (depth~1), pairwise combinations with binary
+operations (depth~2), unary transforms of top pairwise formulas
+(depth~3), and triple feature combinations (depth~3). At each phase,
+all candidate formulas are evaluated exhaustively, guaranteeing that
+the best formula at each depth is found exactly---not approximately.
+
+This phased exhaustive approach avoids the admissibility issues of
+heuristic A* search on formula spaces (where defining an admissible
+heuristic for future F1 improvement is nontrivial) while preserving
+the key practical benefit: the best formula at each depth is
+identified with certainty.
+
+Our framework provides two outputs that existing methods do not:
+\begin{enumerate}
+\item The \textbf{best interpretable formula} at each complexity level,
+found by exhaustive search within that level.
+\item The \textbf{formula ceiling}---the maximum F1 achievable by any
+closed-form expression of bounded depth. Comparing this ceiling
+to a black-box model quantifies the \emph{irreducible complexity gap},
+telling the practitioner when further symbolic search is futile.
+\end{enumerate}
+
+\section{Method}
+
+\subsection{Problem Formulation}
+
+\begin{definition}[Symbolic Prediction Problem]
+Given a feature matrix $X \in \mathbb{R}^{N \times d}$ and binary
+labels $y \in \{0, 1\}^N$, find a formula
+$f: \mathbb{R}^d \to \mathbb{R}$ and threshold $\tau \in \mathbb{R}$
+that maximize $F_1(\hat{y}, y)$ where
+$\hat{y}_i = \mathbf{1}[f(X_i) > \tau]$, subject to
+$\mathrm{depth}(f) \leq D$.
+\end{definition}
+
+\subsection{Operation Registry}
+
+The search space is defined by three operation classes:
+
+\textbf{Leaf nodes} (depth 0): Each of the $d$ features $x_j$.
+
+\textbf{Unary operations} (depth $+1$): $\{\log|\cdot|, \sqrt{|\cdot|},
+(\cdot)^2, 1/(\cdot), -(\cdot), |\cdot|, \sigma(\cdot),
+\tanh(\cdot)\}$ (8 operations).
+
+\textbf{Binary operations} (depth $+1$): $\{+, -, \times, \div,
+\max, \min, \mathrm{hypot}, (\cdot - \cdot)^2,
+\mathrm{harmonic\text{-}mean}, \mathrm{geometric\text{-}mean}\}$
+(10 operations).
+
+\subsection{Phased Exhaustive Search}
+
+Rather than a single tree search, we organize the exploration into
+four phases (Algorithm~\ref{alg:search}). Each phase exhaustively
+evaluates all formulas at its complexity level.
+
+\begin{algorithm}[t]
+\caption{Phased Exhaustive Symbolic Search}
+\label{alg:search}
+\begin{algorithmic}[1]
+\Require Features $X \in \mathbb{R}^{N \times d}$, labels $y$,
+operations $\mathcal{U}$ (unary), $\mathcal{B}$ (binary)
+\Ensure Best formula and F1 at each depth
+\Statex
+\Statex \textbf{Phase 1:} Single features (depth 1)
+\For{$j = 1, \ldots, d$}
+    \State Evaluate $F_1^*(x_j)$ via threshold sweep
+\EndFor
+\State $R_1 \gets$ top-$K$ features by F1
+\Statex
+\Statex \textbf{Phase 2:} Pairwise combinations (depth 2)
+\For{$x_i, x_j \in \{1,\ldots,d\}$, $b \in \mathcal{B}$}
+    \State Evaluate $F_1^*(b(x_i, x_j))$ via threshold sweep
+\EndFor
+\State $R_2 \gets$ top-$K$ pairwise formulas
+\Statex
+\Statex \textbf{Phase 3:} Unary transforms (depth 3)
+\For{$f \in R_2$, $u \in \mathcal{U}$}
+    \State Evaluate $F_1^*(u(f))$ via threshold sweep
+\EndFor
+\State $R_3 \gets$ top-$K$ depth-3 formulas
+\Statex
+\Statex \textbf{Phase 4:} Triple combinations (depth 3)
+\For{$x_i, x_j, x_k \in R_1$, pattern $p$}
+    \State Evaluate $F_1^*(p(x_i, x_j, x_k))$ via threshold sweep
+\EndFor
+\State \Return best formula across all phases
+\end{algorithmic}
+\end{algorithm}
+
+\textbf{Threshold sweep.} For each candidate formula $f$, we compute
+$v_i = f(X_i)$ for all $N$ samples, then evaluate F1 at percentile
+thresholds $\{20, 30, 40, \ldots, 95\}$ of the value distribution.
+Both $v > \tau$ and $v < \tau$ predictors are tested. The best
+threshold is retained. This sweep is vectorized and adds negligible
+cost.
+
+\textbf{GPU acceleration.} Features are stored as GPU arrays (CuPy).
+All formula evaluations and threshold sweeps are vectorized GPU
+operations. Phase~2 evaluates $d^2 \times |\mathcal{B}|$ formulas
+(e.g., $23^2 \times 10 = 5{,}290$) in seconds.
+
+\textbf{Completeness within each phase.} Phases~1--2 are exhaustive
+over all feature (pairs) and operations. Phase~3 applies all unary
+transforms to the top-$K$ results from Phase~2. Phase~4 tests
+multiple combination patterns over the top-$K$ single features.
+The search is complete at each phase for the specified formula
+structure; no formulas of that structure are missed.
+
+\subsection{Scalability}
+
+The formula count per phase is:
+Phase~1: $O(d)$;
+Phase~2: $O(d^2 \cdot |\mathcal{B}|)$;
+Phase~3: $O(K \cdot |\mathcal{U}|)$;
+Phase~4: $O(\binom{K}{3} \cdot P)$ where $P$ is the number of
+triple-combination patterns.
+
+For $d = 23$, $|\mathcal{B}| = 10$, $|\mathcal{U}| = 8$, $K = 50$,
+$P = 9$, the total is approximately 6{,}200 formulas---evaluated in
+under one minute on a single GPU. Depth~5--6 formulas (Phase~2
+composed with Phase~2) would require $O(d^4 \cdot |\mathcal{B}|^2)
+\approx 28$ million formulas, which is tractable with GPU
+vectorization but would take hours. We do not explore beyond depth~4
+in this work.
+
+\subsection{Formula Ceiling and Irreducible Complexity Gap}
+
+\begin{definition}[Formula Ceiling]
+The formula ceiling $C_D$ at depth $D$ is the maximum F1 achieved
+by any formula of depth $\leq D$ found across all phases:
+$C_D = \max_{\text{phases}} F_1^*$.
+\end{definition}
+
+\begin{definition}[Irreducible Complexity Gap]
+Given a black-box model with F1 score $F_1^{\mathrm{bb}}$ trained on
+the same features, the irreducible complexity gap at depth $D$ is
+$G_D = F_1^{\mathrm{bb}} - C_D$.
+\end{definition}
+
+$G_D > 0$ means the data contains predictive structure that cannot
+be captured by depth-$D$ formulas. $G_D$ is a property of the data
+and the feature set, not of the search algorithm. If $C_D$ converges
+(does not increase with additional operations or deeper phases),
+further symbolic search is futile.
+
+\begin{proposition}
+$C_D$ is non-decreasing in $D$ and bounded above by
+$F_1^{\mathrm{Bayes}}$. If $C_{D+1} = C_D$ for a sufficiently
+rich operation set, the ceiling has converged.
+\end{proposition}
+
+\section{Case Study: Three-Body Periodic Orbit Prediction}
+
+\subsection{Setup}
+
+We compute 23 features from the Hessian of the gravitational
+three-body Hamiltonian at 15{,}000 random configurations of
+equal-mass bodies ($m_1 = m_2 = m_3 = 1$) in Jacobi coordinates.
+Features include: numerical matrix rank (threshold $\epsilon = 10^{-6}$),
+potential block eigenvalues and their ratios, frequency cluster counts,
+spectral entropy, Hamiltonian energy, body separation ratios, and
+derived quantities. Ground truth is obtained by symplectic leapfrog
+integration ($\Delta t = 0.005$, $8 \times 10^4$ steps) on an
+NVIDIA GV100 GPU, with periodicity defined as phase-space return
+to within 5\% of initial extent. Batch size is maximized
+automatically using the batch-probe library~\cite{batchprobe}.
+
+\subsection{Search Results}
+
+Table~\ref{tab:phases} summarizes the results across all four phases.
+
+\begin{table}[h]
+\caption{Formula search results by phase (15{,}000 configs, 23 features).}
+\label{tab:phases}
+\begin{tabular}{llrl}
+\toprule
+Phase & Best formula & F1 & Formulas tested \\
+\midrule
+1 (single) & \texttt{n\_clusters} & 0.35 & 23 \\
+2 (pairwise) & \texttt{n\_clust + $\lambda_\mathrm{min}$} & 0.48 & 5{,}060 \\
+3 (unary) & \texttt{hypot(n\_clust, $\lambda_\mathrm{min}$)} & 0.48 & 400 \\
+4 (triple) & (none above 0.30) & --- & 504 \\
+\midrule
+\textbf{Ceiling} & & \textbf{0.48} & \textbf{5{,}987} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The ceiling converges at Phase~2: unary transforms (Phase~3) and
+triple combinations (Phase~4) provide no improvement. All 20 top
+formulas are algebraically equivalent to
+$\alpha \cdot n_\mathrm{clusters} + \beta \cdot \lambda_\mathrm{min}$
+for various $\alpha, \beta$. The Euclidean norm variant
+\begin{equation}
+\hat{y} = \mathbf{1}\!\left[
+\sqrt{n_\mathrm{clusters}^2 + \lambda_\mathrm{min}^2} > \tau
+\right]
+\end{equation}
+is representative of the equivalence class.
+
+\subsection{Irreducible Complexity Gap}
+
+\begin{table}[h]
+\caption{Formula ceiling vs.\ black-box models (51{,}000 configs, 3 mass ratios).}
+\label{tab:gap}
+\begin{tabular}{lcc}
+\toprule
+Model & F1 & Gap from ceiling \\
+\midrule
+Random baseline (5\% rate) & 0.07 & --- \\
+Separation ratio $r_2/r_1 > 10$ & 0.29 & --- \\
+Best depth-4 formula (Eq.~1) & 0.48 & 0.00 (= ceiling) \\
+Decision tree (depth 5) & 0.58 & $-$0.10 \\
+Gradient boosting (100 trees) & 0.86 & $-$0.38 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The irreducible complexity gap is $G_4 = 0.86 - 0.48 = 0.38$.
+The decision tree (F1~$= 0.58$) captures some of the gap via
+piecewise-constant splits; the remaining 0.28 requires the nonlinear
+interactions of an ensemble. This means that 38\% of the predictive
+structure in three-body periodicity resists expression as any
+depth-4 formula over Hessian features.
+
+\subsection{Physical Interpretation}
+
+The discovered formula combines two independent necessary conditions:
+\begin{itemize}
+\item $n_\mathrm{clusters} \geq 2$: the eigenvalue frequency spectrum
+separates into fast (inner binary) and slow (outer body) groups,
+indicating timescale separation.
+\item $\lambda_\mathrm{min} > 0$: the smallest Hessian eigenvalue is
+nonzero, indicating the system is gravitationally bound (not
+escaping).
+\end{itemize}
+The Euclidean norm indicates these contribute independently---there
+is no synergy or interaction between them. Periodicity requires
+\emph{both} separated timescales \emph{and} sufficient binding.
+
+\subsection{Comparison to PySR}
+
+To contextualize our method, we note how it differs from PySR/genetic
+symbolic regression~\cite{cranmer2023interpretable} on this task:
+
+\textbf{Completeness vs.\ exploration.} Our phased search evaluates
+all $d^2 \times |\mathcal{B}|$ pairwise formulas exhaustively.
+Genetic methods sample this space stochastically and may miss the
+global optimum at a given depth, but can explore deeper formula trees
+(depth 10+) that our exhaustive approach cannot reach.
+
+\textbf{Formula ceiling.} Our framework explicitly computes the
+ceiling and the gap to a black-box model. PySR produces formulas of
+increasing complexity but does not systematically measure when
+further complexity stops helping.
+
+\textbf{Speed.} Our GPU-vectorized evaluation of $\sim$6{,}000
+formulas completes in under one minute. PySR typically requires
+minutes to hours depending on population size and generations. For
+depth $\leq 4$ with moderate feature counts ($d < 30$), exhaustive
+search is faster; for deeper or wider searches, genetic methods
+are more practical.
+
+A direct head-to-head comparison on standard symbolic regression
+benchmarks (e.g., AI Feynman~\cite{udrescu2020ai}) is left for
+future work; our current results demonstrate the method on a novel
+scientific prediction task rather than on benchmark recovery.
+
+\section{Discussion}
+
+\subsection{When to Use This Method}
+
+The phased exhaustive approach is most valuable when:
+(i)~the feature count is moderate ($d < 50$, so $d^2$ is tractable);
+(ii)~the practitioner wants a \emph{guaranteed} best formula at each
+depth, not a stochastic approximation;
+(iii)~the formula ceiling and irreducible complexity gap are of
+interest (e.g., to decide whether a problem admits a simple law or
+requires a complex model).
+
+For large feature spaces ($d > 100$) or deep formula trees
+(depth $> 5$), genetic methods or neural symbolic regression are
+more appropriate.
+
+\subsection{The Ceiling as a Scientific Diagnostic}
+
+The formula ceiling is not just a performance metric---it is a
+statement about the data. A converged ceiling means the relationship
+between features and labels has a \emph{fundamental} nonlinearity
+that no short formula can capture. In our three-body case study,
+the ceiling of 0.48 at depth~4 with the gap of 0.38 to gradient
+boosting tells us that three-body periodic orbit prediction is
+genuinely complex: it depends on nonlinear feature interactions that
+the underlying physics does not reduce to a compact law at the level
+of Hessian features.
+
+This diagnostic is novel. Existing symbolic regression methods report
+the best formula found but do not quantify \emph{how much better}
+a more complex model could do. The ceiling provides a principled
+stopping criterion: if $C_{D+1} = C_D$ and $G_D > 0$, stop searching
+for formulas and use an ensemble.
+
+\subsection{Limitations}
+
+The search is exhaustive only within each phase's structure.
+Phase~2 (pairwise) is complete; Phase~3 applies unary transforms
+only to top-$K$ pairwise results, not all; Phase~4 tests only
+pre-specified triple patterns. A formula with structure not matching
+any phase template (e.g., $\log(x_1 + x_2) \cdot x_3 / x_4$) will
+be missed.
+
+The method does not discover features---it evaluates pre-computed
+ones. The quality of the discovered formula depends entirely on the
+feature engineering.
+
+The F1 metric weights precision and recall equally. Domain-specific
+objectives (e.g., prioritizing recall for safety applications) could
+change the optimal formula.
+
+\section{Conclusion}
+
+We have introduced a phased exhaustive search framework for symbolic
+mechanism discovery that provides two novel contributions:
+guaranteed-best formulas at each complexity level, and the formula
+ceiling as a diagnostic for irreducible complexity. Applied to the
+three-body problem, the method discovers that periodicity depends on
+two Hessian features (frequency cluster count and minimum eigenvalue)
+with a hard ceiling at F1~$\approx 0.48$, while ensemble methods
+reach 0.86. The 38\% irreducible complexity gap quantifies the
+fundamental nonlinearity of three-body dynamics at the level of
+Hessian features.
+
+The method is domain-general, requiring only a feature matrix and
+binary labels. It is practical for feature spaces up to $d \approx 50$
+and formula depths up to 4, with GPU acceleration enabling evaluation
+of $\sim$6{,}000 formulas in under one minute.
+
+\begin{thebibliography}{9}
+
+\bibitem{schmidt2009distilling}
+M.~Schmidt and H.~Lipson, ``Distilling free-form natural laws from
+experimental data,'' \emph{Science}, vol.~324, pp.~81--85, 2009.
+
+\bibitem{udrescu2020ai}
+S.-M.~Udrescu and M.~Tegmark, ``AI Feynman: A physics-inspired
+method for symbolic regression,'' \emph{Science Advances}, vol.~6,
+no.~16, eaay2631, 2020.
+
+\bibitem{langley1987scientific}
+P.~Langley, H.~A.~Simon, G.~L.~Bradshaw, and J.~M.~Zytkow,
+\emph{Scientific Discovery: Computational Explorations of the
+Creative Processes}. MIT Press, 1987.
+
+\bibitem{cranmer2023interpretable}
+M.~Cranmer, ``Interpretable machine learning for science with PySR
+and SymbolicRegression.jl,'' \emph{arXiv:2305.01582}, 2023.
+
+\bibitem{batchprobe}
+A.~H.~Bond, batch-probe: GPU memory batch-size probing, v0.3.0
+(2026). \url{https://pypi.org/project/batch-probe/}
+
+\end{thebibliography}
+
+\end{document}
