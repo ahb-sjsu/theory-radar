@@ -1,27 +1,29 @@
-\documentclass[11pt,a4paper]{article}
+\documentclass[journal]{IEEEtran}
 
-\usepackage{amsmath,amssymb,amsthm}
+\usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
-\usepackage{hyperref}
-\usepackage[margin=1in]{geometry}
+\usepackage{url}
 \usepackage{algorithm}
 \usepackage[noend]{algpseudocode}
+\usepackage{cite}
 
 \newtheorem{definition}{Definition}
-\newtheorem{theorem}{Theorem}
 \newtheorem{proposition}{Proposition}
 
-\title{Formula Ceiling Detection:\\Phased Enumeration for Interpretable Symbolic Prediction}
-
-\author{Andrew H. Bond\\
-\small Department of Computer Engineering, San Jose State University\\
-\small Senior Member, IEEE \quad ORCID: 0009-0003-2599-6158\\
-\small \texttt{andrew.bond@sjsu.edu}}
-
-\date{\today}
-
 \begin{document}
+
+\title{Formula Ceiling Detection: Phased Enumeration for Interpretable Symbolic Prediction}
+
+\author{Andrew~H.~Bond,~\IEEEmembership{Senior Member,~IEEE}
+\thanks{A. H. Bond is with the Department of Computer Engineering,
+San Jose State University, San Jose, CA 95192 USA
+(e-mail: andrew.bond@sjsu.edu). ORCID: 0009-0003-2599-6158.}
+}
+
+\markboth{IEEE Transactions on Artificial Intelligence}
+{Bond: Formula Ceiling Detection}
+
 \maketitle
 
 \begin{abstract}
@@ -259,8 +261,8 @@ the formula ceiling to gradient-boosted ensembles (Table~\ref{tab:bench}).
 folds only, with F1 measured on each held-out fold.
 Gap $= \text{GB} - C$.}
 \label{tab:bench}
-\small
-\begin{tabular}{lccrl}
+\scriptsize
+\begin{tabular}{@{}lccrl@{}}
 \toprule
 Dataset ($d$) & Ceiling & GB F1 (CV) & Gap & Formula \\
 \midrule
@@ -317,8 +319,8 @@ Table~\ref{tab:phases} summarizes the results across all four phases.
 \caption{Formula search results by phase (15{,}000 configs, 23 features).
 All phases search formulas of depth $\leq 3$.}
 \label{tab:phases}
-\small
-\begin{tabular}{llrr}
+\scriptsize
+\begin{tabular}{@{}llrr@{}}
 \toprule
 Phase (depth) & Best formula & F1 & Tested \\
 \midrule
@@ -397,8 +399,8 @@ four AI Feynman regression problems (Table~\ref{tab:pysr}).
 \begin{table}[h]
 \caption{Regression: our method vs.\ PySR (R$^2$, 3{,}000 samples).}
 \label{tab:pysr}
-\small
-\begin{tabular}{lcccl}
+\scriptsize
+\begin{tabular}{@{}lcccl@{}}
 \toprule
 Problem & Ours & PySR & PySR time & PySR formula \\
 \midrule
@@ -538,9 +540,9 @@ defined structural templates and measures the complexity gap to a
 black-box ensemble on the same data split. Applied to the three-body
 problem, the ceiling stabilizes at F1~$= 0.48$ while gradient
 boosting reaches $0.83$ on the same dataset, yielding a gap of $0.35$.
-Across five classification benchmarks, the ceiling correctly
-identifies problems where formulas suffice (Circles: ceiling beats
-ensemble) and where they do not (three-body, Moons).
+Across five classification benchmarks, the ceiling distinguishes
+problems where formulas match ensemble performance (Circles) from
+problems where a substantial gap remains (three-body, Moons).
 
 The method is domain-general, requiring only a feature matrix and
 binary labels. It is practical for feature spaces up to $d \approx 50$
