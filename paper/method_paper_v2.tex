@@ -375,31 +375,83 @@ is no synergy or interaction between them. Periodicity requires
 
 \subsection{Comparison to PySR}
 
-To contextualize our method, we note how it differs from PySR/genetic
-symbolic regression~\cite{cranmer2023interpretable} on this task:
+We compare directly against PySR~\cite{cranmer2023interpretable} on
+four AI Feynman regression problems (Table~\ref{tab:pysr}).
 
-\textbf{Completeness vs.\ exploration.} Our phased search evaluates
-all $d^2 \times |\mathcal{B}|$ pairwise formulas exhaustively.
-Genetic methods sample this space stochastically and may miss the
-global optimum at a given depth, but can explore deeper formula trees
-(depth 10+) that our exhaustive approach cannot reach.
+\begin{table}[h]
+\caption{Regression: our method vs.\ PySR (R$^2$, 3{,}000 samples).}
+\label{tab:pysr}
+\small
+\begin{tabular}{lcccl}
+\toprule
+Problem & Ours & PySR & PySR time & PySR formula \\
+\midrule
+Gravity & 0.99 & \textbf{1.00} & 21s & \texttt{m1*m2/r\^{}2} (exact) \\
+Coulomb & 0.99 & \textbf{1.00} & 5s & \texttt{q1*q2/r\^{}2} (exact) \\
+$x_1^2{+}x_2^2$ & 0.50 & \textbf{1.00} & 6s & \texttt{sq(x1)+sq(x2)} (exact) \\
+Thin lens & 0.93 & 0.96 & 7s & approximate \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\textbf{Formula ceiling.} Our framework explicitly computes the
-ceiling and the gap to a black-box model. PySR produces formulas of
-increasing complexity but does not systematically measure when
-further complexity stops helping.
+PySR recovers the exact formula on 3/4 problems by exploring deeper
+trees (depth 10+). Our method matches PySR on Gravity and Coulomb
+(where depth~2 suffices: $m_1 m_2 / r^2$) but misses $x_1^2 + x_2^2$
+(which requires two additive squared terms---a structure outside our
+Phase~2 template). The key distinction: PySR produces a single best
+formula; our method produces the ceiling + gap diagnostic.
 
-\textbf{Speed.} Our GPU-vectorized evaluation of $\sim$6{,}000
-formulas completes in under one minute. PySR typically requires
-minutes to hours depending on population size and generations. For
-depth $\leq 4$ with moderate feature counts ($d < 30$), exhaustive
-search is faster; for deeper or wider searches, genetic methods
-are more practical.
+\subsection{Convergence and Ablation}
 
-A direct head-to-head comparison on standard symbolic regression
-benchmarks (e.g., AI Feynman~\cite{udrescu2020ai}) is left for
-future work; our current results demonstrate the method on a novel
-scientific prediction task rather than on benchmark recovery.
+Table~\ref{tab:convergence} shows the ceiling at each search phase.
+
+\begin{table}[h]
+\caption{Ceiling convergence: F1 at each phase.}
+\label{tab:convergence}
+\small
+\begin{tabular}{lccc}
+\toprule
+Dataset & Phase 1 & Phase 2 & Phase 3 \\
+\midrule
+Circles & 0.730 & \textbf{0.996} & 0.996 \\
+Moons & \textbf{0.833} & 0.833 & 0.833 \\
+Breast Cancer & 0.926 & \textbf{0.934} & 0.934 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The ceiling converges at Phase~2 for all datasets. Phase~3 (unary
+transforms) never improves the best score, confirming that the ceiling
+is a stable property rather than a search artifact.
+
+\textbf{Ablation.} On Circles, removing the \texttt{hypot} operation
+drops the ceiling from 0.996 to 0.796. All other operations are
+redundant---\texttt{hypot} alone captures the circular decision
+boundary. This demonstrates that the ablation identifies which
+operations are structurally necessary.
+
+\subsection{Runtime Scaling}
+
+\begin{table}[h]
+\caption{Runtime vs.\ feature count (Phase~1+2, single CPU core).}
+\label{tab:scaling}
+\small
+\begin{tabular}{rrrr}
+\toprule
+$d$ & Formulas & Time (s) & Best F1 \\
+\midrule
+2 & 16 & 0.01 & 0.96 \\
+5 & 145 & 0.09 & 0.98 \\
+10 & 640 & 0.38 & 0.96 \\
+15 & 1{,}485 & 0.91 & 0.97 \\
+20 & 2{,}680 & 1.66 & 0.95 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Runtime scales as $O(d^2)$, reaching 1.7~seconds at $d = 20$.
+GPU vectorization (not used here) would further reduce these times.
+At $d = 50$, the estimated Phase~2 time is $\sim$20~seconds on CPU.
 
 \section{Discussion}
 
@@ -407,15 +459,17 @@ scientific prediction task rather than on benchmark recovery.
 
 The phased exhaustive approach is most valuable when:
 (i)~the feature count is moderate ($d < 50$, so $d^2$ is tractable);
-(ii)~the practitioner wants a \emph{guaranteed} best formula at each
-depth, not a stochastic approximation;
+(ii)~the practitioner needs the best formula within a bounded depth,
+not a stochastic approximation;
 (iii)~the formula ceiling and irreducible complexity gap are of
 interest (e.g., to decide whether a problem admits a simple law or
 requires a complex model).
 
 For large feature spaces ($d > 100$) or deep formula trees
-(depth $> 5$), genetic methods or neural symbolic regression are
-more appropriate.
+(depth $> 5$), genetic methods (PySR) or neural symbolic regression
+(AI Feynman) are more appropriate. Our method's advantage is the
+ceiling diagnostic: PySR finds better formulas on deep problems,
+but does not quantify when further search is futile.
 
 \subsection{The Ceiling as a Scientific Diagnostic}
 
