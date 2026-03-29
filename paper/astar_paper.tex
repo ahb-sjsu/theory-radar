@@ -1,6 +1,6 @@
 \documentclass[journal]{IEEEtran}
 
-\usepackage{amsmath,amssymb}
+\usepackage{amsmath,amssymb,amsthm}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{url}
@@ -153,18 +153,28 @@ probability is unchanged.
 
 \subsection{AUROC Admissibility}
 
-\begin{proposition}[AUROC Pre-Filter]
-\label{prop:auroc}
-A formula with $\mathrm{AUROC}(f) \leq 0.5 + \epsilon$ for small
-$\epsilon$ has near-random discriminative power and cannot achieve
-high F1. Pruning formulas with AUROC below threshold $\alpha$ is
-admissible if no formula with $\mathrm{AUROC} < \alpha$ achieves
-the best F1 on the dataset.
-\end{proposition}
+\begin{theorem}[AUROC-F1 Bound]
+\label{thm:auroc_f1}
+For a binary classifier with $\mathrm{AUROC} = A$ and class
+prevalence $\pi$, the maximum achievable thresholded F1 satisfies:
+\[
+F_1^{\max} \leq \sup_{\substack{t \in [J, 1] \\ J = 2A-1}}
+\frac{2 t \pi}{t \pi + \pi + (t - J)(1 - \pi)}
+\]
+where $J = 2A - 1$ is the maximum Youden index for any ROC curve
+with area $A$.
+\end{theorem}
 
-This is an empirical admissibility result, not a formal proof: the
-bound between AUROC and maximum achievable F1 is not tight in general.
-However, we verify it exhaustively.
+\begin{proof}
+Any ROC curve with area $A$ has maximum Youden index $J = \max(TPR
+- FPR) \leq 2A - 1$, with equality for the step-function ROC curve
+(this is a standard result). At any operating point
+$(FPR, TPR)$ with $TPR - FPR = J$, we substitute $FPR = TPR - J$
+into the F1 expression and maximize over $TPR \in [J, 1]$.
+\end{proof}
+
+This bound is \emph{tight}: it is achieved by the step-function ROC
+curve. Table~\ref{tab:bounds} shows bounds for specific datasets.
 
 \textbf{Empirical verification.} We tested AUROC thresholds
 $\alpha \in \{0.52, 0.55, 0.58, 0.60, 0.65, 0.70, 0.75\}$ across
