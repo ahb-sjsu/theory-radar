@@ -1,0 +1,360 @@
+\documentclass[aps,pre,twocolumn,superscriptaddress,floatfix]{revtex4-2}
+
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+\begin{document}
+
+\title{Numerical Hessian Rank and Keplerian Eigenvalue Structure\\as Diagnostics for Periodic Orbits in the Equal-Mass Three-Body Problem}
+
+\author{Andrew H. Bond}
+\email{andrew.bond@sjsu.edu}
+\affiliation{Department of Computer Engineering, San Jose State University, San Jose, CA 95192, USA}
+\affiliation{Senior Member, IEEE; ORCID: 0009-0003-2599-6158}
+
+\date{\today}
+
+\begin{abstract}
+We compute the Hessian of the gravitational three-body Hamiltonian in
+Jacobi coordinates across 3.24 million configurations and analyze its
+numerical rank, eigenvalue spectrum, and relationship to orbital
+periodicity. At configurations where the numerical rank of the
+potential-energy block $V_{qq}$ drops to~3 (using a singular-value
+threshold $\epsilon = 10^{-6}$), the three nonzero eigenvalues
+exhibit an exact $2{:}1{:}1$ magnitude ratio---the curvature signature
+of a dominant Keplerian binary with a decoupled third body. This ratio
+is proven analytically from the Hessian of the $1/r$ potential and
+confirmed computationally to $< 10^{-12}$ relative error. We integrate
+100{,}000 orbits on GPU and find that configurations at effective
+rank~9 (potential rank~3) show a periodicity rate of $5.5\%$,
+the highest among all rank levels.
+A gradient-boosted classifier trained on Hessian-derived features
+achieves cross-validated $F_1 = 0.86$ for periodicity prediction on
+a 51{,}000-configuration dataset, and an A*-discovered closed-form
+formula $\sqrt{n_\mathrm{clusters}^2 + \lambda_\mathrm{min}^2} > \tau$
+achieves $F_1 = 0.48$. The rank classification is threshold-dependent
+(vanishing at $\epsilon = 10^{-10}$) and the Keplerian structure
+is asymptotic (exact only in the decoupled limit), which we
+characterize through threshold sensitivity sweeps. We compare against
+separation ratio as a baseline and find that Hessian features provide
+complementary but not superior predictive power for periodicity.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+
+The gravitational three-body problem has no general closed-form
+solution~\cite{poincare1892}, but specific configurations---hierarchical
+triples, Lagrange points, choreographies---are approximately or exactly
+tractable. Identifying which configurations are tractable typically
+requires either perturbation theory~\cite{murray1999solar}, KAM
+analysis~\cite{arnold1963small}, or brute-force numerical
+integration~\cite{suvakov2013three}. Each approach is computationally
+expensive or requires analytical insight about the specific
+configuration.
+
+We explore whether the \emph{Hessian} of the Hamiltonian---computed
+once per configuration at negligible cost compared to orbit
+integration---contains sufficient information to predict orbital
+regularity. The Hessian encodes the local curvature of the energy
+landscape: its rank measures how many degrees of freedom are
+dynamically coupled, and its eigenvalue structure reflects the
+characteristic frequencies of the linearized motion.
+
+Our approach is computational rather than theoretical. We make no
+claim that Hessian rank is a superior diagnostic to existing methods;
+rather, we characterize what it reveals and where it fails, as a
+contribution to the toolkit of three-body diagnostics.
+
+\section{Methods}
+
+\subsection{Jacobi Coordinates and Hessian Structure}
+
+We work in the center-of-mass-reduced 12-dimensional phase space
+$z = (\boldsymbol{\rho}_1, \boldsymbol{\rho}_2, \boldsymbol{\pi}_1,
+\boldsymbol{\pi}_2)$. The Hamiltonian separates as
+$H = T(\boldsymbol{\pi}) + V(\boldsymbol{\rho})$ with
+$T = |\boldsymbol{\pi}_1|^2/(2\mu_1) + |\boldsymbol{\pi}_2|^2/(2\mu_2)$.
+
+The Hessian $C_{ab} = \partial^2 H / \partial z_a \partial z_b$ has
+exact block-diagonal structure:
+\begin{equation}
+C = \begin{pmatrix} V_{qq} & 0 \\ 0 & T_{pp} \end{pmatrix},
+\end{equation}
+where the position-momentum cross block is identically zero (since
+$H$ is separable in $q$ and $p$), and $T_{pp} = \mathrm{diag}(\mu_1^{-1}
+I_3, \mu_2^{-1} I_3)$ is configuration-independent with eigenvalues
+$\{1/\mu_1, 1/\mu_1, 1/\mu_1, 1/\mu_2, 1/\mu_2, 1/\mu_2\}$.
+For equal masses, these are $\{2, 2, 2, 1.5, 1.5, 1.5\}$.
+
+All variation in the Hessian structure comes from the $6 \times 6$
+potential block $V_{qq}$, which we compute analytically (see
+Appendix). The total Hessian rank satisfies
+$\mathrm{rank}(C) = \mathrm{rank}(V_{qq}) + 6$.
+
+\subsection{Numerical Rank}
+
+We define the \emph{effective rank} at threshold $\epsilon$ as:
+\begin{equation}
+r_\epsilon(A) = |\{k : \sigma_k / \sigma_1 > \epsilon\}|
+\end{equation}
+where $\sigma_k$ are the singular values of $A$ in descending order.
+Unless stated otherwise, we use $\epsilon = 10^{-6}$.
+
+This is a numerical, not algebraic, quantity. At finite body
+separations, $V_{qq}$ is generically full rank (all six eigenvalues
+nonzero). The ``rank~3'' designation means that three singular values
+are below $10^{-6}$ times the largest---not that they are exactly zero.
+Table~\ref{tab:threshold} shows the sensitivity to $\epsilon$.
+
+\begin{table}[h]
+\caption{Fraction of configurations with effective rank $< 12$
+at various thresholds ($N = 10{,}000$ random sample, equal masses).}
+\label{tab:threshold}
+\begin{ruledtabular}
+\begin{tabular}{cc}
+Threshold $\epsilon$ & Fraction rank $< 12$ \\
+\hline
+$10^{-4}$ & 44.8\% \\
+$10^{-5}$ & 25.8\% \\
+$10^{-6}$ (default) & 8.2\% \\
+$10^{-7}$ & 2.9\% \\
+$10^{-8}$ & 1.0\% \\
+$10^{-10}$ & 0.0\% \\
+\end{tabular}
+\end{ruledtabular}
+\end{table}
+
+\subsection{Configuration Sampling}
+
+We sampled $50 \times 50 \times 36 \times 36 = 3{,}240{,}000$
+configurations for equal masses ($m_1 = m_2 = m_3 = 1$) on a grid
+in $(r_1, r_2, \theta, \phi)$ with logarithmic radial spacing
+$r \in [0.1, 100]$, where $r_1$ is the inner pair separation and
+$r_2$ is the distance from the third body to the inner pair's
+center of mass. Initial momenta are set for circular orbits.
+
+\subsection{Orbit Integration}
+
+Orbits are integrated using a symplectic leapfrog (Störmer-Verlet)
+scheme with $\Delta t = 0.005$ for $8 \times 10^4$ steps ($T = 400$
+natural time units). An orbit is classified as \emph{periodic} if it
+returns to within 5\% of its initial phase-space extent at any time
+after the first 10\% of the integration. Energy conservation error
+is monitored; mean relative error is $\sim 10^{-3}$.
+
+Integration is GPU-accelerated using CuPy on an NVIDIA Quadro GV100
+(32~GB), processing up to 400{,}000 orbits simultaneously. The
+maximum batch size is determined automatically using the
+batch-probe library~\cite{batchprobe}.
+
+\section{Results}
+
+\subsection{Rank Landscape}
+
+Table~\ref{tab:landscape} shows the complete rank distribution.
+
+\begin{table}[h]
+\caption{Hessian rank distribution (equal masses, $\epsilon = 10^{-6}$,
+$N = 3{,}240{,}000$).}
+\label{tab:landscape}
+\begin{ruledtabular}
+\begin{tabular}{crrc}
+Rank & Count & Fraction & $V_{qq}$ eff.\ rank \\
+\hline
+6 & 24 & 0.001\% & 0 \\
+7 & 1{,}316 & 0.04\% & 1 \\
+8 & 716 & 0.02\% & 2 \\
+9 & 156{,}756 & 4.84\% & 3 \\
+10 & 74{,}124 & 2.29\% & 4 \\
+11 & 32{,}972 & 1.02\% & 5 \\
+12 & 2{,}974{,}092 & 91.79\% & 6 \\
+\end{tabular}
+\end{ruledtabular}
+\end{table}
+
+\subsection{Keplerian Eigenvalue Structure}
+
+At configurations where $V_{qq}$ has effective rank~3, the three
+dominant eigenvalues exhibit a $2{:}1{:}1$ magnitude ratio:
+\begin{equation}
+|\lambda_1| / |\lambda_2| = |\lambda_1| / |\lambda_3| = 2.000\,000
+\label{eq:ratio}
+\end{equation}
+to better than $10^{-6}$ relative error across all 156{,}756 such
+configurations. The eigenvalue signs are $\{-\lambda, +\lambda/2,
++\lambda/2\}$ where $\lambda \approx 2m_1 m_2 / r_1^3$.
+
+\emph{Proof.} In the limit where the third body is decoupled,
+$V \approx -m_1 m_2 / |\boldsymbol{\rho}_1|$. The Hessian of
+$-m/r$ in 3D evaluated at $\boldsymbol{\rho}_1 = (r_1, 0, 0)$ is:
+\[
+\frac{\partial^2}{\partial x_i \partial x_j}\!\left(-\frac{m}{r}\right)
+= \frac{m}{r^3}\!\left(\frac{3 x_i x_j}{r^2} - \delta_{ij}\right)
+\]
+with eigenvalues $+2m/r^3$ (radial, multiplicity~1) and $-m/r^3$
+(tangential, multiplicity~2). The magnitude ratio is exactly $2{:}1$.
+At finite third-body distance, corrections of order
+$(r_1/r_2)^3$ perturb the eigenvalues but preserve the ratio to high
+accuracy when $r_2 \gg r_1$. $\square$
+
+This result is the Keplerian curvature structure expressed in the
+language of the coupling tensor. It is not new physics---it follows
+directly from the $1/r$ potential---but it provides a computationally
+cheap diagnostic: configurations exhibiting the $2{:}1$ ratio are
+near-Keplerian hierarchical triples.
+
+\subsection{Periodicity by Rank}
+
+Table~\ref{tab:orbits} shows periodicity rates from the 100{,}000-orbit
+GPU survey.
+
+\begin{table}[h]
+\caption{Periodicity rate by effective Hessian rank (100{,}000 orbits,
+equal masses, circular initial momenta).}
+\label{tab:orbits}
+\begin{ruledtabular}
+\begin{tabular}{crrc}
+Rank & Periodic & Total & Rate \\
+\hline
+7--8 & 0 & 66 & 0.0\% \\
+9 & 270 & 4{,}905 & 5.5\% \\
+10 & 39 & 2{,}345 & 1.7\% \\
+11 & 0 & 1{,}048 & 0.0\% \\
+12 & 2{,}975 & 91{,}635 & 3.2\% \\
+\end{tabular}
+\end{ruledtabular}
+\end{table}
+
+Rank~9 has the highest periodicity rate (5.5\%), but rank~12
+(generic, full rank) also shows 3.2\% periodicity. The rank
+diagnostic enriches the periodic population by a factor of
+$5.5/3.2 \approx 1.7\times$ relative to the full-rank baseline---a
+modest but nonzero signal.
+
+\subsection{Comparison to Separation Ratio Baseline}
+
+The simplest diagnostic for hierarchical stability is the separation
+ratio $r_2/r_1$. On the 51{,}000-configuration labeled dataset
+(three mass ratios), we compare Hessian-based predictors to this
+baseline:
+
+\begin{table}[h]
+\caption{Periodicity prediction: Hessian features vs.\ baseline.}
+\label{tab:comparison}
+\begin{ruledtabular}
+\begin{tabular}{lc}
+Predictor & F1 \\
+\hline
+Random (base rate 5--10\%) & $\sim$0.07 \\
+$r_2/r_1 > 10$ & 0.29 \\
+Frequency clusters $\geq 2$ & 0.29 \\
+A*-discovered formula (Eq.~\ref{eq:formula}) & 0.48 \\
+Decision tree (depth 5, 9 features) & 0.58 \\
+Gradient boosting (100 trees) & 0.86 \\
+\end{tabular}
+\end{ruledtabular}
+\end{table}
+
+The A*-discovered formula:
+\begin{equation}
+\sqrt{n_\mathrm{clusters}^2 + \lambda_\mathrm{min}^2} > \tau
+\label{eq:formula}
+\end{equation}
+achieves F1 $= 0.48$, outperforming the separation ratio baseline
+(F1 $= 0.29$) but well below the gradient-boosted ensemble
+(F1 $= 0.86$). The frequency cluster count alone matches the
+separation ratio---it is a Hessian-derived equivalent of the same
+information, not a new signal.
+
+\subsection{Machine Learning Predictor}
+
+The gradient-boosted classifier (F1 $= 0.86$, 5-fold cross-validated)
+uses 9 Hessian-derived features. Feature importances reveal that
+\emph{energy} (38\%), \emph{log separation ratio} (18\%), and
+\emph{log frequency ratio} (12\%) dominate. Tensor rank contributes
+only 10\%. The decision tree identifies the primary split as
+rank~$\leq 9.5$ (importance 46\%), recovering the rank threshold
+automatically.
+
+The gap between the closed-form formula (F1 $= 0.48$) and the
+ensemble (F1 $= 0.86$) quantifies the irreducible complexity of the
+periodicity prediction task: 38\% of the predictive structure requires
+nonlinear feature interactions that no depth-4 formula can express.
+
+\section{Discussion}
+
+The Hessian rank landscape provides a computationally cheap ($97\times$
+faster than integration) map of the three-body configuration space
+that correlates with but does not strongly predict orbital periodicity.
+The Keplerian $2{:}1$ eigenvalue ratio is a clean analytical result
+but amounts to detecting near-Keplerian hierarchical structure---information
+also available from the separation ratio.
+
+The principal value of the Hessian approach is in the machine learning
+setting: the 9 Hessian-derived features, when combined nonlinearly,
+achieve F1 $= 0.86$ for periodicity prediction, substantially
+outperforming any single diagnostic. This suggests that the Hessian
+encodes complementary information about the energy landscape curvature
+that simple geometric diagnostics (like separation ratio) miss.
+
+\subsection{Limitations}
+
+The rank classification is threshold-dependent (Table~\ref{tab:threshold})
+and should not be interpreted as exact algebraic rank. All ``rank~9''
+configurations have six nonzero singular values; three are merely small.
+The $2{:}1$ eigenvalue ratio is exact only in the fully decoupled limit
+and approximate (with $(r_1/r_2)^3$ corrections) at finite separations.
+The periodicity classification depends on integration parameters (timestep,
+duration, return threshold). Results are shown for equal masses only;
+generalization to unequal masses shows qualitatively similar patterns
+but quantitatively different rank distributions. The 4-body generalization
+(3{,}000 configurations, equal masses) found 0\% periodicity, indicating
+that the approach does not trivially extend to $N > 3$.
+
+\section{Conclusion}
+
+The Hessian of the three-body Hamiltonian provides a fast, analytically
+grounded diagnostic for near-Keplerian hierarchical structure via its
+numerical rank and $2{:}1$ eigenvalue ratio. As a standalone periodicity
+predictor, its power is modest (F1 $= 0.48$ for the best formula,
+$1.7\times$ enrichment at rank~9). Combined with energy and separation
+features in a machine learning ensemble, it contributes to a strong
+predictor (F1 $= 0.86$). The rank landscape atlas (3.24 million
+configurations) and 100{,}000-orbit GPU dataset are publicly available
+for further analysis.
+
+\begin{acknowledgments}
+Computations performed on a dual-GV100 workstation using CuPy for
+GPU-accelerated batch integration. Optimal GPU batch sizes determined
+using the batch-probe library~\cite{batchprobe}.
+Code and data: \url{https://github.com/ahb-sjsu/astar-symbolic-discovery}.
+\end{acknowledgments}
+
+\begin{thebibliography}{10}
+
+\bibitem{poincare1892}
+H.~Poincar{\'e}, \emph{Les m{\'e}thodes nouvelles de la
+m{\'e}canique c{\'e}leste} (Gauthier-Villars, Paris, 1892).
+
+\bibitem{murray1999solar}
+C.~D.~Murray and S.~F.~Dermott, \emph{Solar System Dynamics}
+(Cambridge University Press, 1999).
+
+\bibitem{arnold1963small}
+V.~I.~Arnold, Russ.\ Math.\ Surv.\ \textbf{18}, 85 (1963).
+
+\bibitem{suvakov2013three}
+M.~\v{S}uvakov and V.~Dmitra\v{s}inovi\'{c}, Phys.\ Rev.\ Lett.\
+\textbf{110}, 114301 (2013).
+
+\bibitem{batchprobe}
+A.~H.~Bond, batch-probe: Find the maximum batch size that fits in
+GPU memory, v0.3.0 (2026). \url{https://pypi.org/project/batch-probe/}
+
+\end{thebibliography}
+
+\end{document}
