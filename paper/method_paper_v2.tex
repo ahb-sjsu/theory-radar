@@ -12,7 +12,7 @@
 \newtheorem{theorem}{Theorem}
 \newtheorem{proposition}{Proposition}
 
-\title{Symbolic Mechanism Discovery via Best-First Search\\in Mathematical Operation Space}
+\title{Formula Ceiling Detection:\\Phased Enumeration for Interpretable Symbolic Prediction}
 
 \author{Andrew H. Bond\\
 \small Department of Computer Engineering, San Jose State University\\
@@ -25,33 +25,31 @@
 \maketitle
 
 \begin{abstract}
-We introduce a framework for automated discovery of interpretable
-predictive formulas from labeled scientific data using best-first
-search through a space of mathematical operations. Given a feature
-matrix and binary labels, the method searches over compositions of
-arithmetic, transcendental, and conditional operations to find the
-closed-form formula that maximizes F1 score. The search is organized
-in phases of increasing complexity---single features, pairwise
-combinations, unary transforms, and triples---with GPU-vectorized
-evaluation enabling thousands of candidate formulas per second.
+We introduce a framework for discovering interpretable predictive
+formulas from labeled scientific data by enumerating compositions of
+mathematical operations in phases of increasing complexity. Given a
+feature matrix and binary labels, the method evaluates all single
+features, all pairwise operation combinations, and selected higher-order
+compositions, finding the formula that maximizes F1 score within each
+phase. GPU-vectorized evaluation enables thousands of candidates per
+second.
 
-The framework provides two outputs: (i)~the best interpretable formula
-at each depth, and (ii)~the \emph{formula ceiling}---the maximum F1
-achievable by any closed-form expression of bounded complexity.
-Comparing this ceiling to a black-box ensemble quantifies the
-\emph{irreducible complexity gap}: how much predictive structure
-resists symbolic expression.
+The framework's primary contribution is the \emph{formula ceiling}:
+the highest F1 achieved by any enumerated formula. Comparing this
+ceiling to a black-box ensemble (trained and evaluated on the same
+data split) yields the \emph{complexity gap}---how much predictive
+structure lies beyond the enumerated formula space.
 
 Applied to predicting periodic orbits in the gravitational three-body
-problem (15{,}000 configurations, 23 Hessian-derived features,
-GPU-integrated ground truth), the method discovers that periodicity
-is predicted by the norm $\sqrt{n_\mathrm{clusters}^2 +
-\lambda_\mathrm{min}^2}$ (F1~$= 0.48$). The ceiling is stable across
-all tested operations at depths 1--3. A gradient-boosted ensemble
-trained on a separate 51{,}000-configuration dataset reaches
-F1~$= 0.86$, yielding an irreducible complexity gap of 0.38---meaning
-that no formula found within the bounded search space achieves more
-than 56\% of the ensemble's predictive power.
+problem (15{,}000 configurations, 23 features, 5-fold cross-validated),
+the method discovers that periodicity is predicted by
+$\sqrt{n_\mathrm{clusters}^2 + \lambda_\mathrm{min}^2}$
+(ceiling F1~$= 0.48$). A gradient-boosted ensemble on the same data
+and splits reaches F1~$= 0.83$, yielding a complexity gap of 0.35.
+Across five classification benchmarks, the ceiling correctly
+identifies problems admitting exact formulas (Circles: ceiling
+$= 0.996$, beating the ensemble) and problems requiring complex
+models (three-body: gap $= 0.35$).
 
 Code and data: \url{https://github.com/ahb-sjsu/astar-symbolic-discovery}.
 \end{abstract}
@@ -68,29 +66,28 @@ depth and often produces bloated expressions. Neural methods discover
 accurate but opaque representations. Classical systems require
 domain-specific search heuristics.
 
-We propose a structured search through mathematical operation space
-using \emph{best-first search} with F1 score as the ranking criterion.
-The search is organized in phases of increasing formula complexity:
-single features (depth~1), pairwise combinations with binary
-operations (depth~2), unary transforms of top pairwise formulas
-(depth~3), and triple feature combinations (depth~3). At each phase,
-all candidate formulas are evaluated exhaustively, guaranteeing that
-the best formula at each depth is found exactly---not approximately.
+We propose \emph{phased enumeration}: exhaustive evaluation of all
+formulas within a series of structural templates of increasing
+complexity. Phase~1 evaluates all single features; Phase~2 evaluates
+all ordered pairs of features composed with each binary operation;
+Phase~3 applies unary transforms to the top Phase~2 results.
+Within Phases~1--2, every candidate is evaluated, so the best formula
+\emph{within that phase's template} is found by complete enumeration.
+Phase~3 is restricted to the top-$K$ Phase~2 results and is therefore
+not exhaustive over all depth-3 formulas. Formulas with structures
+not matching any template (e.g., multi-term sums, deeply nested
+compositions) are not searched.
 
-This phased exhaustive approach avoids the admissibility issues of
-heuristic A* search on formula spaces (where defining an admissible
-heuristic for future F1 improvement is nontrivial) while preserving
-the key practical benefit: the best formula within each phase's structure is
-identified by enumeration.
-
-Our framework provides two outputs that existing methods do not:
+Our framework's primary contribution is the \emph{formula ceiling}:
 \begin{enumerate}
-\item The \textbf{best interpretable formula} at each complexity level,
-found by exhaustive search within that level.
-\item The \textbf{formula ceiling}---the maximum F1 achievable by any
-closed-form expression of bounded depth. Comparing this ceiling
-to a black-box model quantifies the \emph{irreducible complexity gap},
-telling the practitioner when further symbolic search is futile.
+\item The \textbf{ceiling} at each phase: the highest F1 achieved by
+any enumerated formula. If the ceiling stabilizes across phases, the
+search has likely saturated for the given operation set.
+\item The \textbf{complexity gap}: the difference between a black-box
+ensemble's F1 and the ceiling, both evaluated on the same data using
+the same cross-validation splits. A positive gap indicates predictive
+structure beyond the enumerated formula space; a zero or negative gap
+indicates a simple formula suffices.
 \end{enumerate}
 
 \section{Method}
@@ -168,8 +165,8 @@ threshold is retained. This discrete sweep approximates but does not
 guarantee the globally optimal threshold; in practice, F1 is
 piecewise-constant in $\tau$ (changing only when $\tau$ crosses a
 data point), and our 11 percentiles sample this step function densely
-enough that the best F1 is found exactly for all formulas tested in
-our experiments (verified by exhaustive threshold search on a subset).
+enough that the reported F1 matches exhaustive threshold search on
+a verified subset (median absolute error $< 0.001$).
 The sweep is vectorized and adds negligible cost.
 
 \textbf{GPU acceleration.} Features are stored as GPU arrays (CuPy).
@@ -252,7 +249,7 @@ Circles (2) & \textbf{0.996} & 0.989 & $-$0.007 & \texttt{hypot(x1,x2)} \\
 Breast Ca.\ (30) & 0.948 & 0.962 & +0.014 & \texttt{f7 + f22} \\
 Ionosphere (34) & 0.902 & 0.934 & +0.032 & \texttt{log(f6 min f5)} \\
 Moons (2) & 0.833 & 0.969 & +0.136 & \texttt{x2} \\
-Three-body (23) & 0.480 & 0.860 & +0.380 & Eq.~\ref{eq:discovered} \\
+Three-body (23) & 0.480 & 0.830 & +0.350 & \texttt{hypot(n\_cl, $\lambda_\mathrm{min}$)} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -267,21 +264,19 @@ the gap is largest ($0.38$), reflecting genuine nonlinear complexity.
 
 The ceiling concept is validated: it correctly identifies problems that
 admit simple formulas (Circles: gap $< 0$), problems where formulas
-are close (Breast Cancer: gap $= 1.4\%$), and problems that fundamentally
-require complex models (Three-body: gap $= 38\%$).
+are close (Breast Cancer: gap $= 1.4\%$), and problems that require
+complex models (Three-body: gap $= 35\%$). All gaps are computed with
+ensemble and ceiling on the same data.
 
 \section{Case Study: Three-Body Periodic Orbit Prediction}
 
 \subsection{Setup}
 
-We use two datasets. The \emph{formula search dataset} consists of
-15{,}000 random configurations of equal-mass bodies
-($m_1 = m_2 = m_3 = 1$) used for the phased search.
-The \emph{ensemble comparison dataset} consists of 51{,}000
-configurations spanning three mass ratios (equal, binary+light,
-hierarchical) used to train and cross-validate the gradient-boosted
-baseline. Both datasets use the same 23 Hessian-derived features and
-the same orbit integration protocol.
+We use a single dataset of 15{,}000 random configurations of
+equal-mass bodies ($m_1 = m_2 = m_3 = 1$). Both the formula search
+and the gradient-boosted baseline are evaluated on this dataset using
+the same 5-fold cross-validation splits, ensuring the ceiling and
+ensemble F1 are directly comparable.
 
 Features include: numerical matrix rank (threshold $\epsilon = 10^{-6}$),
 potential block eigenvalues and their ratios, frequency cluster counts,
@@ -331,32 +326,32 @@ is representative of the equivalence class.
 \subsection{Irreducible Complexity Gap}
 
 \begin{table}[h]
-\caption{Formula ceiling vs.\ black-box models. The ceiling is measured
-on the 15K search dataset; the ensemble is cross-validated on the
-51K comparison dataset (3 mass ratios, same features).}
+\caption{Formula ceiling vs.\ black-box models (all on 15K dataset,
+5-fold CV for ensemble methods).}
 \label{tab:gap}
-\begin{tabular}{lccc}
+\begin{tabular}{lcc}
 \toprule
-Model & Dataset & F1 & Gap \\
+Model & F1 & Gap from ceiling \\
 \midrule
-Random (base rate) & 15K & $\sim$0.07 & --- \\
-$r_2/r_1 > 10$ & 15K & 0.29 & --- \\
-Best formula (Eq.~1) & 15K & 0.48 & 0.00 \\
-Decision tree (depth 5) & 51K (CV) & 0.58 & $-$0.10 \\
-Gradient boosting & 51K (CV) & 0.86 & $-$0.38 \\
+Random (4\% base rate) & $\sim$0.07 & --- \\
+$r_2/r_1 > 10$ & 0.29 & --- \\
+Best enumerated formula & 0.48 & 0.00 (ceiling) \\
+Decision tree (depth 5, CV) & 0.55 & $-$0.07 \\
+Gradient boosting (CV) & 0.83 & $-$0.35 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The observed gap is $G = 0.86 - 0.48 = 0.38$.
-The decision tree (F1~$= 0.58$) captures some of this gap via
-piecewise-constant splits; the remaining $0.86 - 0.58 = 0.28$
-requires the nonlinear interactions of an ensemble. Within the
-formula structures searched, no expression of depth~$\leq 3$
-achieves more than 56\% of the ensemble's predictive power. This
-gap may narrow with deeper search or richer operation sets, but its
-stability across our tested operations suggests it reflects genuine
-complexity in the data.
+The observed gap is $G = 0.83 - 0.48 = 0.35$ (both measured on the
+same 15K dataset with 5-fold CV for the ensemble). The decision tree
+(F1~$= 0.55$, CV) captures some of this gap via piecewise-constant
+splits; the remaining $0.83 - 0.55 = 0.28$ requires the nonlinear
+interactions of an ensemble. Within the enumerated formula structures,
+no expression achieves more than 58\% of the ensemble's predictive
+power on this dataset. This gap may narrow with deeper search, richer
+operations, or additional features, but its stability across Phases~2--3
+and across all tested operation types suggests it reflects genuine
+complexity rather than a search limitation.
 
 \subsection{Physical Interpretation}
 
@@ -477,7 +472,7 @@ The formula ceiling is not just a performance metric---it is a
 statement about the data. A converged ceiling means the relationship
 between features and labels has a \emph{fundamental} nonlinearity
 that no short formula can capture. In our three-body case study,
-the ceiling of 0.48 at depth~4 with the gap of 0.38 to gradient
+the ceiling of 0.48 through Phase~3 with the gap of 0.35 to gradient
 boosting tells us that three-body periodic orbit prediction is
 genuinely complex: it depends on nonlinear feature interactions that
 the underlying physics does not reduce to a compact law at the level
@@ -508,16 +503,15 @@ change the optimal formula.
 
 \section{Conclusion}
 
-We have introduced a phased exhaustive search framework for symbolic
-mechanism discovery that provides two novel contributions:
-guaranteed-best formulas at each complexity level, and the formula
-ceiling as a diagnostic for irreducible complexity. Applied to the
-three-body problem, the method discovers that periodicity depends on
-two Hessian features (frequency cluster count and minimum eigenvalue)
-with a hard ceiling at F1~$\approx 0.48$, while ensemble methods
-reach 0.86. The 38\% irreducible complexity gap quantifies the
-fundamental nonlinearity of three-body dynamics at the level of
-Hessian features.
+We have introduced phased enumeration with formula ceiling detection
+for symbolic prediction. The method enumerates all formulas within
+defined structural templates and measures the complexity gap to a
+black-box ensemble on the same data split. Applied to the three-body
+problem, the ceiling stabilizes at F1~$= 0.48$ while gradient
+boosting reaches $0.83$ on the same dataset, yielding a gap of $0.35$.
+Across five classification benchmarks, the ceiling correctly
+identifies problems where formulas suffice (Circles: ceiling beats
+ensemble) and where they do not (three-body, Moons).
 
 The method is domain-general, requiring only a feature matrix and
 binary labels. It is practical for feature spaces up to $d \approx 50$
