@@ -1,0 +1,625 @@
+\documentclass[journal]{IEEEtran}
+
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage{cite}
+
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+
+\begin{document}
+
+\title{Formula Ceiling Detection: Phased Enumeration for Interpretable Symbolic Prediction}
+
+\author{Andrew~H.~Bond,~\IEEEmembership{Senior Member,~IEEE}
+\thanks{A. H. Bond is with the Department of Computer Engineering,
+San Jose State University, San Jose, CA 95192 USA
+(e-mail: andrew.bond@sjsu.edu). ORCID: 0009-0003-2599-6158.}
+}
+
+\markboth{IEEE Transactions on Artificial Intelligence}
+{Bond: Formula Ceiling Detection}
+
+\maketitle
+
+\begin{abstract}
+We introduce a framework for discovering interpretable predictive
+formulas from labeled scientific data by enumerating compositions of
+mathematical operations in phases of increasing complexity. Given a
+feature matrix and binary labels, the method evaluates all single
+features, all pairwise operation combinations, and selected higher-order
+compositions, finding the formula that maximizes F1 score within each
+phase. GPU-vectorized evaluation enables thousands of candidates per
+second.
+
+The framework's primary contribution is the \emph{formula ceiling}:
+the highest F1 achieved by any enumerated formula. Comparing this
+ceiling to a black-box ensemble (trained and evaluated on the same
+data split) yields the \emph{complexity gap}---how much predictive
+structure lies beyond the enumerated formula space.
+
+Applied to predicting periodic orbits in the gravitational three-body
+problem (15{,}000 configurations, 23 features, 5-fold cross-validated),
+the method discovers that periodicity is predicted by
+$\sqrt{n_\mathrm{clusters}^2 + \lambda_\mathrm{min}^2}$
+(ceiling F1~$= 0.48$). A gradient-boosted ensemble on the same data
+and splits reaches F1~$= 0.83$, yielding a complexity gap of 0.35.
+Across five classification benchmarks, the ceiling correctly
+identifies problems admitting exact formulas (Circles: ceiling
+$= 0.996$, beating the ensemble) and problems requiring complex
+models (three-body: gap $= 0.35$).
+
+Code and data: \url{https://github.com/ahb-sjsu/astar-symbolic-discovery}.
+\end{abstract}
+
+\section{Introduction}
+
+A central goal of computational science is to discover interpretable
+laws from data. This problem has been addressed by genetic symbolic
+regression~\cite{schmidt2009distilling, cranmer2023interpretable},
+neural equation discovery~\cite{udrescu2020ai}, and classical AI
+systems~\cite{langley1987scientific}. Genetic programming explores
+large formula spaces but provides no optimality guarantee at a given
+depth and often produces bloated expressions. Neural methods discover
+accurate but opaque representations. Classical systems require
+domain-specific search heuristics.
+
+We propose \emph{phased enumeration}: exhaustive evaluation of all
+formulas within a series of structural templates of increasing
+complexity. Phase~1 evaluates all single features; Phase~2 evaluates
+all ordered pairs of features composed with each binary operation;
+Phase~3 applies unary transforms to the top Phase~2 results.
+Within Phases~1--2, every candidate is evaluated, so the best formula
+\emph{within that phase's template} is found by complete enumeration.
+Phase~3 is restricted to the top-$K$ Phase~2 results and is therefore
+not exhaustive over all depth-3 formulas. Formulas with structures
+not matching any template (e.g., multi-term sums, deeply nested
+compositions) are not searched.
+
+Our framework's primary contribution is the \emph{formula ceiling}:
+\begin{enumerate}
+\item The \textbf{ceiling} at each phase: the highest F1 achieved by
+any enumerated formula. If the ceiling stabilizes across phases, the
+search has likely saturated for the given operation set.
+\item The \textbf{complexity gap}: the difference between a black-box
+ensemble's F1 and the ceiling, both evaluated on the same data using
+the same cross-validation splits. A positive gap indicates predictive
+structure beyond the enumerated formula space; a zero or negative gap
+indicates a simple formula suffices.
+\end{enumerate}
+
+\section{Method}
+
+\subsection{Problem Formulation}
+
+\begin{definition}[Symbolic Prediction Problem]
+Given a feature matrix $X \in \mathbb{R}^{N \times d}$ and binary
+labels $y \in \{0, 1\}^N$, find a formula
+$f: \mathbb{R}^d \to \mathbb{R}$ and threshold $\tau \in \mathbb{R}$
+that maximize $F_1(\hat{y}, y)$ where
+$\hat{y}_i = \mathbf{1}[f(X_i) > \tau]$, subject to
+$\mathrm{depth}(f) \leq D$.
+\end{definition}
+
+\subsection{Operation Registry}
+
+The search space is defined by three operation classes:
+
+\textbf{Leaf nodes} (depth 0): Each of the $d$ features $x_j$.
+
+\textbf{Unary operations} (depth $+1$): The full registry contains 8
+operations: $\log|\cdot|$, $\sqrt{|\cdot|}$, $(\cdot)^2$, $1/(\cdot)$,
+$-(\cdot)$, $|\cdot|$, $\sigma(\cdot)$, $\tanh(\cdot)$.
+In the experiments reported here, we use a subset of 5:
+$\{\log, \sqrt{}, (\cdot)^2, 1/(\cdot), -(\cdot)\}$.
+
+\textbf{Binary operations} (depth $+1$): The full registry contains 10
+operations. In our experiments we use 7:
+$\{+, -, \times, \div, \max, \min, \mathrm{hypot}\}$.
+The remaining 3 (diff-squared, harmonic mean, geometric mean) are
+available in the software but were not used in the reported runs.
+
+\subsection{Phased Exhaustive Search}
+
+Rather than a single tree search, we organize the exploration into
+four phases (Algorithm~\ref{alg:search}). Phases~1--2 enumerate all
+formulas of their structural type; Phases~3--4 are restricted to
+top-$K$ results from earlier phases and are not exhaustive.
+
+\begin{algorithm}[t]
+\caption{Phased Symbolic Search (Phases~1--2 exhaustive; 3--4 filtered)}
+\label{alg:search}
+\begin{algorithmic}[1]
+\Require Features $X \in \mathbb{R}^{N \times d}$, labels $y$,
+operations $\mathcal{U}$ (unary), $\mathcal{B}$ (binary)
+\Ensure Best formula and F1 at each depth
+\Statex
+\Statex \textbf{Phase 1:} Single features (depth 1)
+\For{$j = 1, \ldots, d$}
+    \State Evaluate $F_1^*(x_j)$ via threshold sweep
+\EndFor
+\State $R_1 \gets$ top-$K$ features by F1
+\Statex
+\Statex \textbf{Phase 2:} Pairwise combinations (depth 2)
+\For{$x_i, x_j \in \{1,\ldots,d\}$, $b \in \mathcal{B}$}
+    \State Evaluate $F_1^*(b(x_i, x_j))$ via threshold sweep
+\EndFor
+\State $R_2 \gets$ top-$K$ pairwise formulas
+\Statex
+\Statex \textbf{Phase 3:} Unary transforms (depth 3)
+\For{$f \in R_2$, $u \in \mathcal{U}$}
+    \State Evaluate $F_1^*(u(f))$ via threshold sweep
+\EndFor
+\State $R_3 \gets$ top-$K$ depth-3 formulas
+\Statex
+\Statex \textbf{Phase 4:} Triple combinations (depth 3)
+\For{$x_i, x_j, x_k \in R_1$, pattern $p$}
+    \State Evaluate $F_1^*(p(x_i, x_j, x_k))$ via threshold sweep
+\EndFor
+\State \Return best formula across all phases
+\end{algorithmic}
+\end{algorithm}
+
+\textbf{Threshold sweep.} For each candidate formula $f$, we compute
+$v_i = f(X_i)$ for all $N$ samples, then evaluate F1 at 11 percentile
+thresholds $\{20, 30, 40, \ldots, 95\}$ of the value distribution.
+Both $v > \tau$ and $v < \tau$ predictors are tested. The best
+threshold is retained. This discrete sweep approximates but does not
+guarantee the globally optimal threshold; in practice, F1 is
+piecewise-constant in $\tau$ (changing only when $\tau$ crosses a
+data point), and our 11 percentiles sample this step function densely
+enough that the reported F1 matches exhaustive threshold search on
+a verified subset (median absolute error $< 0.001$).
+The sweep is vectorized and adds negligible cost.
+
+\textbf{Cross-validation protocol.} To ensure a fair comparison
+between the formula ceiling and the ensemble baseline, both are
+evaluated using the same 5-fold stratified split. For each fold:
+(i)~the phased search runs on the training portion (formula selection
+and threshold tuning); (ii)~the best formula + threshold is evaluated
+on the held-out test portion; (iii)~the gradient-boosted ensemble is
+trained and evaluated on the same train/test split. The reported
+ceiling and ensemble F1 are both averages over the 5 held-out folds.
+This prevents information leakage from threshold selection into the
+ceiling estimate.
+
+\textbf{GPU acceleration.} Features are stored as GPU arrays (CuPy).
+All formula evaluations and threshold sweeps are vectorized GPU
+operations. Phase~2 evaluates $d(d-1) \times |\mathcal{B}|$ formulas
+(e.g., $23 \times 22 \times 7 = 3{,}542$ with our 7-operation set)
+in seconds.
+
+\textbf{Completeness within each phase.} Phases~1--2 are exhaustive
+over all feature (pairs) and operations. Phase~3 applies all unary
+transforms to the top-$K$ results from Phase~2. Phase~4 tests
+multiple combination patterns over the top-$K$ single features.
+The search is complete at each phase for the specified formula
+structure; no formulas of that structure are missed.
+
+\subsection{Scalability}
+
+The formula count per phase is:
+Phase~1: $d(1 {+} |\mathcal{U}|)$;
+Phase~2: $d(d{-}1)|\mathcal{B}|$;
+Phase~3: $K|\mathcal{U}|$;
+Phase~4: $\binom{K'}{3} P$.
+Here $K$ is the number of top pairwise results carried forward,
+$K'$ the top single features, and $P$ the combination patterns.
+
+For $d = 23$, $|\mathcal{B}| = 7$, $|\mathcal{U}| = 5$, $K = 30$,
+$K' = 8$, $P = 4$, the total is approximately 5{,}600 formulas---evaluated
+in under one minute on a single GPU. Composing Phase~2 with itself
+(all pairwise-of-pairwise formulas) would require
+$O(d^2(d-1)^2 \cdot |\mathcal{B}|^2) \approx 12$ million formulas,
+tractable with GPU vectorization but requiring hours.
+We report results through Phase~3 (depth 3); Phase~4 triples are
+also depth~3 but with a different structural template.
+
+\subsection{Formula Ceiling and Irreducible Complexity Gap}
+
+\begin{definition}[Formula Ceiling]
+The formula ceiling $C_D$ at depth $D$ is the maximum F1 achieved
+by any formula of depth $\leq D$ found across all phases:
+$C_D = \max_{\text{phases}} F_1^*$.
+\end{definition}
+
+\begin{definition}[Irreducible Complexity Gap]
+Given a black-box model with F1 score $F_1^{\mathrm{bb}}$ trained on
+the same features, the irreducible complexity gap at depth $D$ is
+$G_D = F_1^{\mathrm{bb}} - C_D$.
+\end{definition}
+
+$G_D > 0$ means the data contains predictive structure that was not
+captured by any depth-$D$ formula within the searched space. Because
+the search is exhaustive within each phase template but does not
+cover all possible depth-$D$ formulas, $G_D$ is an upper bound on
+the true gap---a formula structure not in our template set could in
+principle achieve higher F1. However, if $C_D$ is stable across
+multiple operation sets and phase structures, this suggests (but
+does not prove) that the gap is intrinsic to the depth constraint
+rather than a limitation of the search.
+
+\begin{proposition}
+$C_D$ is non-decreasing in $D$ and bounded above by
+$F_1^{\mathrm{Bayes}}$. If $C_{D+1} = C_D$ for a sufficiently
+rich operation set, the ceiling has converged.
+\end{proposition}
+
+\section{Benchmark Validation}
+
+To validate the method beyond the three-body case study, we run the
+phased search on four standard classification datasets and compare
+the formula ceiling to gradient-boosted ensembles (Table~\ref{tab:bench}).
+
+\begin{table}[h]
+\caption{Formula ceiling across domains (5-fold CV; ceiling and GB
+are both fold-averaged held-out F1). Formulas shown are the most
+frequently selected across folds; see Table~\ref{tab:folds} for
+per-fold variation. Gap $= \text{GB} - C$.}
+\label{tab:bench}
+\scriptsize
+\begin{tabular}{@{}lccrl@{}}
+\toprule
+Dataset ($d$) & Ceiling & GB F1 (CV) & Gap & Formula \\
+\midrule
+Circles (2) & 0.996 & $0.989{\pm}.01$ & $-$0.01 & \texttt{hypot} \\
+Breast Ca.\ (30) & 0.937 & $0.950{\pm}.02$ & +0.01 & \texttt{f0+f7} \\
+Ionosphere (34) & 0.902 & $0.934{\pm}.03$ & +0.03 & \texttt{log(f6 min f5)} \\
+Moons (2) & 0.833 & $0.969{\pm}.01$ & +0.14 & \texttt{x2} \\
+Three-body (23) & 0.480 & $0.830{\pm}.02$ & +0.35 & \texttt{hypot(n,\,$\lambda$)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On \textbf{Circles}, the method discovers the exact analytic decision
+boundary $\sqrt{x_1^2 + x_2^2} > \tau$ and \emph{outperforms} gradient
+boosting ($F_1 = 0.996$ vs.\ $0.989$). On \textbf{Breast Cancer} and
+\textbf{Ionosphere}, simple two-feature formulas achieve 95--98\% of
+ensemble performance. On \textbf{Moons}, the nonlinear boundary resists
+depth-3 formulas (gap $= 0.136$). On the \textbf{Three-body} problem,
+the gap is largest ($0.35$), indicating substantial nonlinear structure.
+
+On these benchmarks, the ceiling distinguishes problems where simple
+formulas suffice (Circles: gap $< 0$), problems where formulas are
+close (Breast Cancer: gap $\approx 1\%$), and problems where the
+enumerated formulas leave substantial room for improvement
+(Three-body: gap $= 35\%$). All gaps use ensemble and ceiling
+on the same data and CV splits.
+
+\section{Case Study: Three-Body Periodic Orbit Prediction}
+
+\subsection{Setup}
+
+We use a single dataset of 15{,}000 random configurations of
+equal-mass bodies ($m_1 = m_2 = m_3 = 1$). Both the formula search
+and the gradient-boosted baseline are evaluated on this dataset using
+the same 5-fold cross-validation splits, ensuring the ceiling and
+ensemble F1 are directly comparable.
+
+Features include: numerical matrix rank (threshold $\epsilon = 10^{-6}$),
+potential block eigenvalues and their ratios, frequency cluster counts,
+spectral entropy, Hamiltonian energy, body separation ratios, and
+derived quantities. Ground truth (periodic vs.\ non-periodic) is
+obtained by symplectic leapfrog integration ($\Delta t = 0.005$,
+$8 \times 10^4$ steps, $T = 400$ natural time units) on an NVIDIA
+GV100 GPU, with periodicity defined as phase-space return to within
+5\% of initial extent after the first 10\% of integration time.
+Batch size is maximized automatically using the batch-probe
+library~\cite{batchprobe}.
+
+\subsection{Search Results}
+
+Table~\ref{tab:phases} summarizes the results across all four phases.
+
+\begin{table}[h]
+\caption{Formula search results by phase (15{,}000 configs, 23 features).
+All phases search formulas of depth $\leq 3$.}
+\label{tab:phases}
+\scriptsize
+\begin{tabular}{@{}llrr@{}}
+\toprule
+Phase (depth) & Best formula & F1 & Tested \\
+\midrule
+1: single+unary (1--2) & \texttt{n\_clusters} & 0.35 & 138 \\
+2: pairwise (2) & \texttt{n\_clust + $\lambda_\mathrm{min}$} & 0.48 & 3{,}542 \\
+3: unary of top-30 (3) & \texttt{hypot(n\_cl, $\lambda_\mathrm{min}$)} & 0.48 & 150 \\
+4: triple of top-8 (3) & (none above 0.30) & --- & 224 \\
+\midrule
+\textbf{Best (depth $\leq$ 3)} & & \textbf{0.48} & \textbf{4{,}054} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The best F1 is reached at Phase~2 and does not improve in Phases~3--4.
+All 20 top formulas achieve the same F1 and depend only on
+$n_\mathrm{clusters}$ and $\lambda_\mathrm{min}$ (no third feature
+improves the score). They include linear combinations, products, and
+norms of these two features. The Euclidean norm variant
+\begin{equation}
+\hat{y} = \mathbf{1}\!\left[
+\sqrt{n_\mathrm{clusters}^2 + \lambda_\mathrm{min}^2} > \tau
+\right]
+\end{equation}
+is representative of the equivalence class.
+
+\subsection{Irreducible Complexity Gap}
+
+\begin{table}[h]
+\caption{Formula ceiling vs.\ black-box models (all on 15K dataset,
+5-fold CV for ensemble methods; $\pm$ shows fold standard deviation).}
+\label{tab:gap}
+\begin{tabular}{lcc}
+\toprule
+Model & F1 & Gap \\
+\midrule
+Random (4\% base rate) & $\sim$0.07 & --- \\
+$r_2/r_1 > 10$ & 0.29 & --- \\
+Best enumerated formula & 0.48 & 0.00 \\
+Decision tree (CV) & $0.55 \pm 0.03$ & $-$0.07 \\
+Gradient boosting (CV) & $0.83 \pm 0.02$ & $-$0.35 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The observed gap is $G = 0.83 - 0.48 = 0.35$ (both measured on the
+same 15K dataset with 5-fold CV for the ensemble). The decision tree
+(F1~$= 0.55$, CV) captures some of this gap via piecewise-constant
+splits; the remaining $0.83 - 0.55 = 0.28$ requires the nonlinear
+interactions of an ensemble. Within the enumerated formula structures,
+no expression achieves more than 58\% of the ensemble's predictive
+power on this dataset. This gap may narrow with deeper search, richer
+operations, or additional features, but its stability across Phases~2--3
+and across all tested operation types is consistent with genuine
+data complexity, though a richer formula space (e.g., multi-term
+sums, deeper nesting) could in principle narrow the gap.
+
+\subsection{Physical Interpretation}
+
+The discovered formula combines two independent necessary conditions:
+\begin{itemize}
+\item $n_\mathrm{clusters} \geq 2$: the eigenvalue frequency spectrum
+separates into fast (inner binary) and slow (outer body) groups,
+indicating timescale separation.
+\item $\lambda_\mathrm{min} > 0$: the smallest Hessian eigenvalue is
+nonzero, indicating the system is gravitationally bound (not
+escaping).
+\end{itemize}
+The best-performing shallow formulas did not require an explicit
+interaction term between these two features, which is consistent
+with approximately independent contributions. Periodicity requires
+\emph{both} separated timescales \emph{and} sufficient binding.
+
+\subsection{Comparison to PySR}
+
+We compare directly against PySR~\cite{cranmer2023interpretable} on
+four AI Feynman regression problems (Table~\ref{tab:pysr}).
+
+\begin{table}[h]
+\caption{Regression: our method vs.\ PySR (R$^2$, 3{,}000 samples).}
+\label{tab:pysr}
+\scriptsize
+\begin{tabular}{@{}lcccl@{}}
+\toprule
+Problem & Ours & PySR & PySR time & PySR formula \\
+\midrule
+Gravity & 0.99 & \textbf{1.00} & 21s & \texttt{m1*m2/r\^{}2} (exact) \\
+Coulomb & 0.99 & \textbf{1.00} & 5s & \texttt{q1*q2/r\^{}2} (exact) \\
+$x_1^2{+}x_2^2$ & 0.50 & \textbf{1.00} & 6s & \texttt{sq(x1)+sq(x2)} (exact) \\
+Thin lens & 0.93 & 0.96 & 7s & approximate \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On regression (Table~\ref{tab:pysr}), PySR recovers exact formulas on
+3/4 problems by exploring deeper trees (depth~10+). Our method matches
+on Gravity and Coulomb (depth~2 suffices) but misses $x_1^2 + x_2^2$
+(requires multi-term addition outside our Phase~2 template).
+
+For a direct apples-to-apples comparison on the paper's classification
+task, we also ran PySR on the same classification datasets, fitting
+binary labels as continuous regression targets and thresholding the
+output for F1 (Table~\ref{tab:pysr_class}).
+
+\begin{table}[h]
+\caption{Classification F1: our method vs.\ PySR. PySR fits
+$y \in \{0,1\}$ as regression and output is thresholded for F1.
+Ionosphere and Three-body omitted due to PySR runtime ($>$5~min
+per fold at $d > 20$).}
+\label{tab:pysr_class}
+\scriptsize
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Dataset & Ours & PySR & PySR formula \\
+\midrule
+Circles & \textbf{0.996} & 0.996 & $x_2^8$ (deep nesting) \\
+Moons & 0.833 & 0.834 & $\log(2.05 - x_2)$ \\
+Breast Ca. & \textbf{0.937} & 0.927 & $\sqrt{\exp(\cdots)}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Our method matches PySR on Circles (both find the radial boundary)
+and Moons (both limited by the nonlinear boundary), and outperforms
+PySR on Breast Cancer ($0.937$ vs.\ $0.927$). PySR's deeper trees do
+not help on these datasets because the optimal formulas are shallow.
+The key distinction remains: our framework additionally provides the
+ceiling diagnostic and complexity gap.
+
+\subsection{Convergence and Ablation}
+
+Table~\ref{tab:convergence} shows the ceiling at each search phase.
+
+\begin{table}[h]
+\caption{Ceiling convergence: F1 at each phase.}
+\label{tab:convergence}
+\small
+\begin{tabular}{lccc}
+\toprule
+Dataset & Phase 1 & Phase 2 & Phase 3 \\
+\midrule
+Circles & 0.730 & \textbf{0.996} & 0.996 \\
+Moons & \textbf{0.833} & 0.833 & 0.833 \\
+Breast Cancer & 0.926 & \textbf{0.934} & 0.934 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The ceiling converges at Phase~2 for all datasets. Phase~3 (unary
+transforms) does not improve the best score, suggesting that the ceiling
+has stabilized for the tested operations.
+
+\textbf{Ablation.} On Circles, removing the \texttt{hypot} operation
+drops the ceiling from 0.996 to 0.796. All other operations are
+redundant---\texttt{hypot} alone captures the circular decision
+boundary. This demonstrates that the ablation identifies which
+operations are structurally necessary.
+
+\textbf{Fold stability.} Table~\ref{tab:folds} shows per-fold
+formula selection across the 5-fold CV. On Circles, the same formula
+(\texttt{x1 hypot x2}) is selected on all 5 folds with negligible
+F1 variance ($\pm 0.001$). On Moons, \texttt{x2} is selected
+unanimously. On Breast Cancer, two formula families alternate
+(\texttt{f0+f7} and \texttt{f3 max f7}), reflecting the dataset's
+multiple near-equivalent feature pairs. In all cases, the ceiling
+is stable ($\sigma \leq 0.004$).
+
+\begin{table}[h]
+\caption{Per-fold ceiling stability (5-fold CV).}
+\label{tab:folds}
+\scriptsize
+\begin{tabular}{@{}lccl@{}}
+\toprule
+Dataset & Ceiling ($\mu \pm \sigma$) & GB ($\mu \pm \sigma$) & Formula (folds) \\
+\midrule
+Circles & $0.996 \pm 0.001$ & $0.985 \pm 0.007$ & \texttt{hypot} (5/5) \\
+Moons & $0.833 \pm 0.004$ & $0.966 \pm 0.008$ & \texttt{x2} (5/5) \\
+Breast Ca. & $0.937 \pm 0.004$ & $0.950 \pm 0.019$ & \texttt{f0+f7} (2/5) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Runtime Scaling}
+
+\begin{table}[h]
+\caption{Runtime vs.\ feature count (Phase~1+2, single CPU core).}
+\label{tab:scaling}
+\small
+\begin{tabular}{rrrr}
+\toprule
+$d$ & Formulas & Time (s) & Best F1 \\
+\midrule
+2 & 16 & 0.01 & 0.96 \\
+5 & 145 & 0.09 & 0.98 \\
+10 & 640 & 0.38 & 0.96 \\
+15 & 1{,}485 & 0.91 & 0.97 \\
+20 & 2{,}680 & 1.66 & 0.95 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Runtime scales as $O(d^2)$, reaching 1.7~seconds at $d = 20$.
+GPU vectorization (not used here) would further reduce these times.
+At $d = 50$, the estimated Phase~2 time is $\sim$20~seconds on CPU.
+
+\section{Discussion}
+
+\subsection{When to Use This Method}
+
+The phased exhaustive approach is most valuable when:
+(i)~the feature count is moderate ($d < 50$, so $d^2$ is tractable);
+(ii)~the practitioner needs the best formula within a bounded depth,
+not a stochastic approximation;
+(iii)~the formula ceiling and irreducible complexity gap are of
+interest (e.g., to decide whether a problem admits a simple law or
+requires a complex model).
+
+For large feature spaces ($d > 100$) or deep formula trees
+(depth $> 5$), genetic methods (PySR) or neural symbolic regression
+(AI Feynman) are more appropriate. Our method's advantage is the
+ceiling diagnostic: PySR finds better formulas on deep problems,
+but does not quantify when further search is futile.
+
+\subsection{The Ceiling as a Scientific Diagnostic}
+
+The formula ceiling is a statement about the interaction between the
+data and the searched formula space. A converged ceiling with a
+positive gap means that the enumerated formulas do not capture the
+full predictive structure available to flexible models. This could
+indicate genuine nonlinearity in the data, or it could indicate that
+the searched templates miss a formula that would close the gap. In
+our three-body case study, the ceiling of 0.48 is stable across
+Phases~2--3 and across all 7 binary and 5 unary operations tested,
+which is consistent with---but does not prove---genuine complexity
+beyond the depth-3 formula space.
+
+This diagnostic is novel. Existing symbolic regression methods report
+the best formula found but do not quantify \emph{how much better}
+a more complex model could do. The ceiling provides a principled
+stopping criterion: if $C_{D+1} = C_D$ and $G_D > 0$, stop searching
+for formulas and use an ensemble.
+
+\subsection{Limitations}
+
+The search is exhaustive only within each phase's structure.
+Phase~2 (pairwise) is complete; Phase~3 applies unary transforms
+only to top-$K$ pairwise results, not all; Phase~4 tests only
+pre-specified triple patterns. A formula with structure not matching
+any phase template (e.g., $\log(x_1 + x_2) \cdot x_3 / x_4$) will
+be missed.
+
+The method does not discover features---it evaluates pre-computed
+ones. The quality of the discovered formula depends entirely on the
+feature engineering.
+
+The F1 metric weights precision and recall equally. Domain-specific
+objectives (e.g., prioritizing recall for safety applications) could
+change the optimal formula.
+
+\section{Conclusion}
+
+We have introduced phased enumeration with formula ceiling detection
+for symbolic prediction. The method enumerates all formulas within
+defined structural templates and measures the complexity gap to a
+black-box ensemble on the same data split. Applied to the three-body
+problem, the ceiling stabilizes at F1~$= 0.48$ while gradient
+boosting reaches $0.83$ on the same dataset, yielding a gap of $0.35$.
+Across five classification benchmarks, the ceiling distinguishes
+problems where formulas match ensemble performance (Circles) from
+problems where a substantial gap remains (three-body, Moons).
+
+The method is domain-general, requiring only a feature matrix and
+binary labels. It is practical for feature spaces up to $d \approx 50$
+and formula depths up to 3, with GPU acceleration enabling evaluation
+of $\sim$6{,}000 formulas in under one minute.
+
+\begin{thebibliography}{9}
+
+\bibitem{schmidt2009distilling}
+M.~Schmidt and H.~Lipson, ``Distilling free-form natural laws from
+experimental data,'' \emph{Science}, vol.~324, pp.~81--85, 2009.
+
+\bibitem{udrescu2020ai}
+S.-M.~Udrescu and M.~Tegmark, ``AI Feynman: A physics-inspired
+method for symbolic regression,'' \emph{Science Advances}, vol.~6,
+no.~16, eaay2631, 2020.
+
+\bibitem{langley1987scientific}
+P.~Langley, H.~A.~Simon, G.~L.~Bradshaw, and J.~M.~Zytkow,
+\emph{Scientific Discovery: Computational Explorations of the
+Creative Processes}. MIT Press, 1987.
+
+\bibitem{cranmer2023interpretable}
+M.~Cranmer, ``Interpretable machine learning for science with PySR
+and SymbolicRegression.jl,'' \emph{arXiv:2305.01582}, 2023.
+
+\bibitem{batchprobe}
+A.~H.~Bond, batch-probe: GPU memory batch-size probing, v0.3.0
+(2026). \url{https://pypi.org/project/batch-probe/}
+
+\end{thebibliography}
+
+\end{document}

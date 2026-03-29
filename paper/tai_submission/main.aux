@@ -1,0 +1,52 @@
+\relax 
+\citation{schmidt2009distilling,cranmer2023interpretable}
+\citation{udrescu2020ai}
+\citation{langley1987scientific}
+\@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{1}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {II}Method}{1}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-A}}Problem Formulation}{1}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-B}}Operation Registry}{1}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-C}}Phased Exhaustive Search}{1}{}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Phased Symbolic Search (Phases~1--2 exhaustive; 3--4 filtered)}}{2}{}\protected@file@percent }
+\newlabel{alg:search}{{1}{2}{}{algorithm.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-D}}Scalability}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-E}}Formula Ceiling and Irreducible Complexity Gap}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {III}Benchmark Validation}{2}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Formula ceiling across domains (5-fold CV; ceiling and GB are both fold-averaged held-out F1). Formulas shown are the most frequently selected across folds; see Table~\ref {tab:folds} for per-fold variation. Gap $= \text  {GB} - C$.}}{2}{}\protected@file@percent }
+\newlabel{tab:bench}{{I}{2}{}{table.1}{}}
+\citation{batchprobe}
+\citation{cranmer2023interpretable}
+\@writefile{toc}{\contentsline {section}{\numberline {IV}Case Study: Three-Body Periodic Orbit Prediction}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-A}}Setup}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-B}}Search Results}{3}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Formula search results by phase (15{,}000 configs, 23 features). All phases search formulas of depth $\leq 3$.}}{3}{}\protected@file@percent }
+\newlabel{tab:phases}{{II}{3}{}{table.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-C}}Irreducible Complexity Gap}{3}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Formula ceiling vs.\ black-box models (all on 15K dataset, 5-fold CV for ensemble methods; $\pm $ shows fold standard deviation).}}{3}{}\protected@file@percent }
+\newlabel{tab:gap}{{III}{3}{}{table.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-D}}Physical Interpretation}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-E}}Comparison to PySR}{3}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Regression: our method vs.\ PySR (R$^2$, 3{,}000 samples).}}{3}{}\protected@file@percent }
+\newlabel{tab:pysr}{{IV}{3}{}{table.4}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces Classification F1: our method vs.\ PySR. PySR fits $y \in \{0,1\}$ as regression and output is thresholded for F1. Ionosphere and Three-body omitted due to PySR runtime ($>$5~min per fold at $d > 20$).}}{3}{}\protected@file@percent }
+\newlabel{tab:pysr_class}{{V}{3}{}{table.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-F}}Convergence and Ablation}{4}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {VI}{\ignorespaces Ceiling convergence: F1 at each phase.}}{4}{}\protected@file@percent }
+\newlabel{tab:convergence}{{VI}{4}{}{table.6}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {VII}{\ignorespaces Per-fold ceiling stability (5-fold CV).}}{4}{}\protected@file@percent }
+\newlabel{tab:folds}{{VII}{4}{}{table.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-G}}Runtime Scaling}{4}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {VIII}{\ignorespaces Runtime vs.\ feature count (Phase~1+2, single CPU core).}}{4}{}\protected@file@percent }
+\newlabel{tab:scaling}{{VIII}{4}{}{table.8}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {V}Discussion}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-A}}When to Use This Method}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-B}}The Ceiling as a Scientific Diagnostic}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-C}}Limitations}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VI}Conclusion}{4}{}\protected@file@percent }
+\bibcite{schmidt2009distilling}{1}
+\bibcite{udrescu2020ai}{2}
+\bibcite{langley1987scientific}{3}
+\bibcite{cranmer2023interpretable}{4}
+\bibcite{batchprobe}{5}
+\@writefile{toc}{\contentsline {section}{References}{5}{}\protected@file@percent }
+\gdef \@abspage@last{5}

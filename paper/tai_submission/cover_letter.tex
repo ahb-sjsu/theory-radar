@@ -1,0 +1,56 @@
+\documentclass[12pt]{letter}
+\usepackage[margin=1in]{geometry}
+
+\signature{Andrew H. Bond\\Senior Member, IEEE\\
+Department of Computer Engineering\\
+San Jose State University}
+
+\address{Department of Computer Engineering\\
+San Jose State University\\
+San Jose, CA 95192, USA\\
+andrew.bond@sjsu.edu}
+
+\begin{document}
+
+\begin{letter}{Editor-in-Chief\\
+IEEE Transactions on Artificial Intelligence}
+
+\opening{Dear Editor,}
+
+I am pleased to submit the enclosed manuscript, ``Formula Ceiling
+Detection: Phased Enumeration for Interpretable Symbolic Prediction,''
+for consideration as a Regular Paper in IEEE Transactions on
+Artificial Intelligence.
+
+The manuscript introduces a method for discovering interpretable
+predictive formulas from scientific data by exhaustively enumerating
+compositions of mathematical operations in phases of increasing
+complexity. The method's primary contribution is the \emph{formula
+ceiling}: the highest prediction score (F1) achievable by any
+enumerated formula. Comparing this ceiling to a black-box ensemble
+yields the \emph{complexity gap}---a diagnostic that tells
+practitioners whether their prediction task admits a simple formula
+or genuinely requires a complex model.
+
+We validate the method on five classification benchmarks (including
+the UCI Breast Cancer and Ionosphere datasets) and compare directly
+against PySR, a leading genetic symbolic regression method. On
+classification tasks, our method matches or exceeds PySR while
+additionally providing the ceiling diagnostic. We further demonstrate
+the method on a scientific discovery task---predicting periodic orbits
+in the gravitational three-body problem---where it discovers a
+two-feature formula and identifies a complexity gap of 0.35 to
+gradient boosting.
+
+The method is released as an open-source Python package
+(\texttt{pip install symbolic-search}) with 23 unit tests and
+continuous integration, and all experimental data is publicly
+available.
+
+This manuscript has not been published elsewhere and is not under
+consideration by another journal. All work is original.
+
+\closing{Sincerely,}
+
+\end{letter}
+\end{document}
