@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "theory-radar"
-version = "0.2.0"
-description = "A* formula search with provable pruning for interpretable symbolic prediction"
+version = "0.4.0"
+description = "Three-tier symbolic formula search: discover interpretable classifiers that compete with ensembles"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{name = "Andrew H. Bond"}]
-keywords = ["symbolic-regression", "formula-discovery", "scientific-discovery", "interpretable-ml", "theory-radar", "a-star"]
+keywords = ["symbolic-regression", "formula-discovery", "interpretable-ml", "theory-radar", "classification", "projections", "pca", "autotune"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
