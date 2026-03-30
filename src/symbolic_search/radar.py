@@ -210,9 +210,11 @@ class TheoryRadar:
         Args:
             mode: "strict" (true A*, guaranteed optimal),
                   "fast" (AUROC subtree pruning, no guarantee),
-                  "auto" (strict first, fast fallback on timeout).
+                  "auto" (strict first, fast fallback on timeout),
+                  "adaptive" (funnel beam: wide shallow, narrow deep).
             f1_target: Target F1 score. 0 = find absolute best.
-            max_depth: Maximum formula depth.
+            max_depth: Maximum formula depth. In adaptive mode, this
+                controls how deep the funnel goes (up to 5).
             max_expansions: Budget.
             auroc_threshold: For fast mode, prune formulas below this AUROC.
             timeout: For auto mode, seconds before switching to fast.
@@ -304,6 +306,14 @@ class TheoryRadar:
                     auroc_prune=auroc_threshold,
                     verbose=verbose and trial == 0,
                 )
+            elif mode == "adaptive":
+                result = sub_radar._adaptive_search(
+                    f1_target,
+                    max_depth,
+                    max_expansions,
+                    auroc_threshold,
+                    verbose=verbose and trial == 0,
+                )
             else:
                 raise ValueError(f"Unknown mode: {mode}.")
 
@@ -383,6 +393,7 @@ class TheoryRadar:
 
         # Build config space: projection × components × ops × fuzzing
         configs = []
+        # Depth 3: projection × component count
         for proj in [None, "pca", "pls"]:
             for nc in [4, 8]:
                 sk = d_f if proj is None else min(d_f + nc, d_f + nc)
@@ -395,10 +406,24 @@ class TheoryRadar:
                         max_depth=3,
                         binary_ops=None,
                         unary_ops=None,
-                        label=f"{proj or 'raw'}_c{nc}",
+                        label=f"{proj or 'raw'}_c{nc}_d3",
                     )
                 )
-        # Fuzzing variants
+        # Depth 4-5: PLS only (deeper search needs good projections)
+        for depth in [4, 5]:
+            configs.append(
+                dict(
+                    projection="pls",
+                    n_components=8,
+                    n_subspaces=1,
+                    subspace_k=min(d_f + 8, d_f + 8),
+                    max_depth=depth,
+                    binary_ops=None,
+                    unary_ops=None,
+                    label=f"pls_d{depth}",
+                )
+            )
+        # Fuzzing variants (depth 3)
         for proj in [None, "pca", "pls"]:
             sk = min(10, d_f + 4) if proj is None else min(12, d_f + 8)
             configs.append(
@@ -410,7 +435,7 @@ class TheoryRadar:
                     max_depth=3,
                     binary_ops=None,
                     unary_ops=None,
-                    label=f"{proj or 'raw'}_fuzz",
+                    label=f"{proj or 'raw'}_fuzz_d3",
                 )
             )
         # Minimal ops (less overfitting)
@@ -522,6 +547,66 @@ class TheoryRadar:
             )
 
         return best_radar, best_result
+
+    def _adaptive_search(self, f1_target, max_depth, max_expansions, auroc_threshold, verbose):
+        """Funnel beam search: wide at shallow depths, narrow at deep.
+
+        Uses A* priority (depth + h) to decide which nodes deserve
+        deeper exploration. The beam width narrows at each depth:
+        depth 1-2: full beam, depth 3: half, depth 4: quarter, depth 5: top 5.
+
+        This is selective deepening: only the most promising branches
+        get expanded to depth 4-5, while dead branches stop at depth 3.
+        """
+        # Funnel schedule: beam width at each depth
+        base_beam = min(100, max_expansions // 100)
+        schedule = {
+            1: base_beam,
+            2: base_beam,
+            3: max(20, base_beam // 2),
+            4: max(10, base_beam // 5),
+            5: max(3, base_beam // 20),
+        }
+        effective_depth = min(max_depth, 5)
+
+        if verbose:
+            sched_str = ", ".join(f"d{d}={schedule[d]}" for d in range(1, effective_depth + 1))
+            log.info("Adaptive search: %s", sched_str)
+
+        # Run _search with progressive depth, narrowing beam each time
+        # Start with depth 3 at full beam to establish baseline
+        best_result = self._search(
+            f1_target,
+            min(3, effective_depth),
+            max_expansions // 2,
+            auroc_prune=auroc_threshold,
+            verbose=verbose,
+        )
+
+        if effective_depth <= 3:
+            return best_result
+
+        # Deepen to 4-5 with narrower beam
+        for depth in range(4, effective_depth + 1):
+            bw = schedule[depth]
+            deeper = self._search(
+                f1_target,
+                depth,
+                max(bw * 100, 2000),
+                auroc_prune=auroc_threshold,
+                verbose=verbose,
+            )
+            if deeper.f1 > best_result.f1:
+                best_result = deeper
+                if verbose:
+                    log.info(
+                        "  Depth %d improved: %s F1=%.4f",
+                        depth,
+                        deeper.formula[:30],
+                        deeper.f1,
+                    )
+
+        return best_result
 
     def _auto(self, f1_target, max_depth, max_expansions, auroc_threshold, timeout, verbose):
         """Auto mode: try strict first, fall back to fast."""
