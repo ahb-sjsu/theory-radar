@@ -409,20 +409,24 @@ class TheoryRadar:
                         label=f"{proj or 'raw'}_c{nc}_d3",
                     )
                 )
-        # Depth 4-5: PLS only (deeper search needs good projections)
-        for depth in [4, 5]:
-            configs.append(
-                dict(
-                    projection="pls",
-                    n_components=8,
-                    n_subspaces=1,
-                    subspace_k=min(d_f + 8, d_f + 8),
-                    max_depth=depth,
-                    binary_ops=None,
-                    unary_ops=None,
-                    label=f"pls_d{depth}",
+        # Depth 4-5: PLS only, but ONLY if N/d > 5 (avoids overfitting)
+        # Sonar (N=208, d=60, N/d=3.5) overfits at depth 4+
+        # Ionosphere (N=351, d=34, N/d=10) benefits from depth 4-5
+        nd_ratio = N / max(d, 1)
+        if nd_ratio > 5:
+            for depth in [4, 5]:
+                configs.append(
+                    dict(
+                        projection="pls",
+                        n_components=8,
+                        n_subspaces=1,
+                        subspace_k=min(d_f + 8, d_f + 8),
+                        max_depth=depth,
+                        binary_ops=None,
+                        unary_ops=None,
+                        label=f"pls_d{depth}",
+                    )
                 )
-            )
         # Fuzzing variants (depth 3)
         for proj in [None, "pca", "pls"]:
             sk = min(10, d_f + 4) if proj is None else min(12, d_f + 8)

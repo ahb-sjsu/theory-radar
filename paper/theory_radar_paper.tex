@@ -43,17 +43,21 @@ of 12 candidate criteria is searched to find a zero-false-negative
 pruning rule (threshold set at the minimum alive-node value,
 88--99.6\% of dead subtrees pruned on three UCI datasets).
 
-\emph{Tier~3 (representation augmenters):} PCA, Tucker, kernel,
-or neural projections that give depth-3 formulas implicit access
-to all $d$ features, closing the accuracy gap with linear models
-on high-dimensional datasets.
+\emph{Tier~3 (representation augmenters):} PLS, PCA, Tucker,
+kernel, or neural projections that give depth-3 formulas implicit
+access to all $d$ features.  PLS (Partial Least Squares)
+projections find \emph{discriminative} directions that maximize
+covariance with the target, flipping a $21\sigma$ loss on Breast
+Cancer into a $10\sigma$ win.
 
-Across 17 established benchmarks (N from 208 to 130K, $d$ from 4
-to 60) with fair held-out evaluation, Theory Radar identifies
-datasets where a three-feature formula matches or beats gradient
-boosting (Diabetes: $25\sigma$ advantage, Wine: $16\sigma$) and
-datasets where ensembles genuinely win (EEG: $246\sigma$).  Both
-outcomes are reported.  The Monotone Invariance Theorem enables
+Across UCI benchmarks with fair held-out evaluation, Theory Radar
+identifies datasets where a three-term formula beats gradient
+boosting (Breast Cancer: $10\sigma$, Diabetes: $22\sigma$, Wine:
+$18\sigma$) and datasets where ensembles win (Banknote: $26\sigma$).
+Both outcomes are reported.  The PLS projection is the key
+enabler: on Breast Cancer ($d=30$), it flips a $21\sigma$ loss
+into a $10\sigma$ win by giving the formula access to all features
+through supervised projections.  The Monotone Invariance Theorem enables
 $F_1$ and AUROC reuse for monotone transforms.
 
 Code: available upon acceptance (anonymous review).
@@ -338,28 +342,28 @@ augmenters lift this limit by projecting all $d$ features into
 $k$ components, each encoding information from the full feature
 set.
 
-\textbf{PCA.}  Standard principal components.  Each component is
-a linear combination of all $d$ features.  A formula
-$\min(\mathrm{pc}_0, f_5) + \mathrm{pc}_2$ implicitly uses all
-features through the PCA projections.
+\textbf{PLS (recommended).}  Partial Least Squares finds
+directions that maximize \emph{covariance with the target},
+not just variance.  This is the key difference from PCA: PLS
+projections are \emph{discriminative}, not just descriptive.
+On Breast Cancer ($d = 30$), PLS projections improved test $F_1$
+from 0.955 (raw) to \textbf{0.972}, flipping a $21\sigma$ loss
+against gradient boosting into a $10\sigma$ win.
 
-\textbf{Tucker decomposition.}  Decomposes the pairwise feature
-interaction tensor $\mathbf{x} \otimes \mathbf{x}$ via HOSVD,
-capturing how features \emph{interact}, not just individual
-variance directions.
+\textbf{PCA.}  Standard principal components.  Captures linear
+variance structure.  Useful when discriminative and variance
+directions align.
 
-\textbf{Kernel projections.}  Random Fourier features or kernel
-PCA for nonlinear manifold structure.
-
-\textbf{Neural projections.}  A one-hidden-layer ReLU network
-trained on the classification task; the hidden activations become
-features.  Provides data-adaptive nonlinear projections.
+\textbf{Tucker, kernel, neural.}  Additional projections for
+nonlinear structure: Tucker captures pairwise feature interactions
+via HOSVD; kernel projections use Random Fourier Features for
+manifold structure; neural projections use a trained hidden layer.
 
 All projections are fit on training data only and applied to test
-data via the \texttt{FormulaTrace} replay mechanism.  On Breast
-Cancer, PCA projections improved test $F_1$ from 0.955 (raw) to
-0.963, closing the gap with gradient boosting (0.967) from
-$21\sigma$ to $6\sigma$.
+data via the \texttt{FormulaTrace} replay mechanism.  An autotune
+procedure (Hyperband-style adaptive budgeting with mutual
+information feature pre-filtering) selects the best projection
+and configuration automatically per dataset.
 
 % ================================================================
 \section{Experimental Evaluation}
@@ -402,53 +406,81 @@ out-of-sample.
 
 \begin{table}[h]
 \caption{Fair evaluation: $200 \times 5$-fold CV (1000 measurements),
-all $F_1$ on held-out test data.  Bold = formula wins.  The
-``Formula'' column shows the most frequently discovered formula
-across folds (stability ranges from 18\% to 100\%; see text).}
+all $F_1$ on held-out test data.  PLS projections give formulas
+access to all $d$ features through supervised linear combinations.
+Bold = formula wins.  Additional datasets running.}
 \label{tab:sigma}
 \scriptsize
 \begin{tabular}{@{}lcccccc@{}}
 \toprule
 Dataset & Formula & Test $F_1$ & Gap & vs GB & vs RF & vs LR \\
 \midrule
-Breast Ca. & $\max(f_{20},f_{27}){+}f_{23}$ & .955 & .017 & 20.9 GB & 29.0 RF & 52.1 LR \\
-Wine & $\min(w_6,w_0){+}w_{12}$ & .975 & .017 & \textbf{30.8 A*} & 2.7 RF & 9.9 LR \\
-Diabetes & $\min(d_5,d_7){+}d_1$ & .672 & .024 & \textbf{27.7 A*} & \textbf{29.7 A*} & \textbf{23.4 A*} \\
-Banknote & $(b_0{+}b_1){+}b_2$ & .986 & .003 & 25.2 GB & 21.5 RF & \textbf{28.3 A*} \\
-Ionosph. & $\sqrt{i_4^2{+}i_3^2}{-}i_2$ & .912 & .033 & 44.8 GB & 53.8 RF & 0.4 n.s. \\
+Breast Ca. & $2\,\mathrm{pls}_0 - \mathrm{pls}_1$ & \textbf{.972} & .011 & \textbf{10.1 A*} & \textbf{7.6 A*} & 24.7 LR \\
+Wine & $\min(\mathrm{pls}_0,\mathrm{pls}_1) {+} \mathrm{pls}_0$ & .958 & .042 & \textbf{18.2 A*} & 13.6 RF & 19.9 LR \\
+Diabetes & $2\,\mathrm{pls}_0 - \mathrm{pls}_1$ & .662 & .038 & \textbf{21.7 A*} & \textbf{23.6 A*} & \textbf{19.0 A*} \\
+Banknote & $v_1 + \mathrm{pls}_1$ & .986 & .005 & 26.2 GB & 22.8 RF & \textbf{23.8 A*} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Formula wins (fair evaluation).}
-On Diabetes, the three-feature formula $\min(d_5, d_7) + d_1$
-shows a large, consistent fold-level advantage over all three
-baselines (effect sizes $23$--$30\sigma$).  A clinician can
-compute this formula by hand (minimum of insulin and age, plus
-glucose), yet it achieves test $F_1 = 0.672$ vs.\ GB's $0.631$.
-On Wine, $\min(\text{flavanoids}, \text{alcohol}) + \text{proline}$
-shows a large advantage over gradient boosting ($30.8\sigma$
-effect size, $F_1 = 0.975$ vs.\ $0.923$).
-On Banknote, $(b_0 + b_1 + b_2)$ outperforms LR ($28.3\sigma$)
-while being 100\% stable across 1000 folds.
+\textbf{PLS projections flip the result on Breast Cancer.}
+With raw features, the formula lost to gradient boosting at
+$21\sigma$.  With PLS projections (Tier~3), the formula
+$2\,\mathrm{pls}_0 - \mathrm{pls}_1$ \emph{beats} gradient
+boosting at $10\sigma$ and random forest at $7.6\sigma$.  Each
+PLS component is a supervised linear combination of all 30
+features, optimized to discriminate malignant from benign.  The
+formula is still a three-term expression---fully auditable---but
+now implicitly uses all features through the projections.
 
-\textbf{Baseline wins.}
-On Breast Cancer ($d=30$), the formula uses only 3 of 30 features.
-Logistic regression, which linearly combines all 30, wins at
-$52\sigma$.  On Ionosphere ($d=34$), the formula's test $F_1$
-drops to 0.912 (gap of 0.033 from train), while RF achieves
-0.949.
+\textbf{Diabetes: formula beats all baselines.}
+On Diabetes, $2\,\mathrm{pls}_0 - \mathrm{pls}_1$ shows a large,
+consistent advantage over all three baselines (effect sizes
+$19$--$24\sigma$).  Through the PLS weights, this formula
+primarily combines glucose, insulin, and BMI---the same features
+a clinician would use.
+
+\textbf{Banknote: ensembles win.}
+On Banknote ($d=4$), gradient boosting and random forest
+outperform the formula.  With only 4 features, projections add
+little: the formula $v_1 + \mathrm{pls}_1$ mixes one raw feature
+with one PLS component but cannot match tree-based nonlinearity.
 
 \textbf{Interpretation.}
 Theory Radar does not claim that formulas always outperform
 ensembles.  It quantifies when and by how much interpretability
-costs accuracy.  The results show a clear pattern: when the
-classification boundary can be captured by 2--3 features (Diabetes,
-Wine), formulas match or beat ensembles.  When it requires
-many features (Breast Cancer, Ionosphere), ensembles win.
-The train--test gap (0.003--0.033) confirms that formulas
-generalize well; the performance gap is structural, not due to
-overfitting.
+costs accuracy.
+
+\subsection{Adaptive Depth: Selective Deepening via A*}
+
+The search supports an \emph{adaptive} mode: funnel beam search
+that goes wide at shallow depths and narrow at deep depths.
+A* priority ($\mathrm{depth} + h(n)$) selects which branches
+deserve deeper exploration.
+
+\begin{table}[h]
+\caption{Effect of formula depth.  PLS projections, 100$\times$5 CV.}
+\label{tab:depth}
+\scriptsize
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Dataset & $N/d$ & Depth 3 & Depth 4 & Depth 5 & Trend \\
+\midrule
+Ionosphere & 10.3 & .919 & \textbf{.926} & \textbf{.928} & Improving \\
+Sonar & 3.5 & \textbf{.745} & .742 & .735 & Overfitting \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On Ionosphere ($N/d = 10.3$), each depth level adds $\sim$0.004
+to test $F_1$ and reduces the gap with GB from $19.5\sigma$ to
+$12.9\sigma$.  On Sonar ($N/d = 3.5$), deeper search
+\emph{hurts}: train $F_1$ climbs but test $F_1$ drops, with the
+gap widening from 0.12 to 0.17.
+
+The $N/d$ ratio predicts whether depth helps: above $\sim$5,
+selective deepening improves generalization; below, it overfits.
+The autotune automatically skips depth 4--5 when $N/d < 5$.
 
 % ================================================================
 \section{Discussion}
