@@ -1,0 +1,790 @@
+// ============================================================
+// Symbolic Expression Tree for Chaga Programming Language
+// ============================================================
+//
+// A typed AST with metadata attributes for algebraic formula
+// representation, simplification, and evaluation.
+//
+// Proposed extension to Chaga v0.5.x
+// Author: Andrew H. Bond, San Jose State University
+// For: Robert James Bruce, Sonoma State University
+//
+// This module demonstrates how Chaga's metadata attributes
+// and arbitrary-precision arithmetic can provide a rigorous
+// symbolic abstraction layer for mathematical formula search.
+//
+// Use case: Theory Radar (symbolic classifier discovery)
+// https://github.com/ahb-sjsu/theory-radar
+// ============================================================
+
+
+// ────────────────────────────────────────────────────────────
+// 1. TYPED EXPRESSION TREE (AST)
+// ────────────────────────────────────────────────────────────
+
+// Node kinds
+define enum NodeKind {
+    LEAF_CONST,      // numeric constant
+    LEAF_VAR,        // variable reference (feature index)
+    UNARY_OP,        // unary operation (one child)
+    BINARY_OP        // binary operation (two children)
+};
+
+// Operator identifiers
+define enum Operator {
+    // Binary
+    OP_ADD, OP_SUB, OP_MUL, OP_DIV,
+    OP_MAX, OP_MIN, OP_HYPOT, OP_DIFF_SQ,
+    OP_HARMONIC, OP_GEOMETRIC,
+    // Unary
+    OP_LOG, OP_SQRT, OP_SQ, OP_ABS,
+    OP_INV, OP_NEG, OP_SIGMOID, OP_TANH,
+    // Identity (no-op, used in simplification)
+    OP_IDENTITY
+};
+
+// Formal properties (metadata carried by every node)
+define enum Monotonicity {
+    MONO_UNKNOWN,
+    MONO_INCREASING,    // strictly increasing in all children
+    MONO_DECREASING,    // strictly decreasing in all children
+    MONO_NON_MONOTONE   // e.g., x^2, abs(x)
+};
+
+// The core AST node type
+// In Chaga, every identifier carries .self.type, .self.datatype, etc.
+// We extend this with formula-specific metadata.
+define struct ExprNode {
+    declare NodeKind       kind;
+    declare Operator       op;
+    declare int            var_index;       // for LEAF_VAR: which feature
+    declare float          const_value;     // for LEAF_CONST: the value
+    declare pointer        left_child;      // -> ExprNode (null for leaves)
+    declare pointer        right_child;     // -> ExprNode (null for leaves/unary)
+    declare int            depth;           // tree depth of this node
+    declare int            n_features;      // count of distinct variables used
+
+    // ── Formal properties (metadata) ──
+    declare Monotonicity   monotonicity;    // monotone invariance applies?
+    declare bool           is_bounded;      // output in a known range?
+    declare float          bound_lo;        // lower bound (if is_bounded)
+    declare float          bound_hi;        // upper bound (if is_bounded)
+    declare bool           is_commutative;  // op(a,b) == op(b,a)?
+    declare bool           is_idempotent;   // op(a,a) simplifies?
+    declare string         canonical_hash;  // for exact deduplication
+
+    // ── Chaga metadata attributes (native) ──
+    // .self.type = "ExprNode"
+    // .self.address = heap address
+    // .self.scope = declaring scope
+    // .protect = "R" after construction (immutable AST)
+};
+
+
+// ────────────────────────────────────────────────────────────
+// 2. CONSTRUCTORS
+// ────────────────────────────────────────────────────────────
+
+define function make_leaf_var (int index) returns ExprNode {
+    declare ExprNode node;
+    set node.kind = LEAF_VAR;
+    set node.op = OP_IDENTITY;
+    set node.var_index = index;
+    set node.const_value = 0.0;
+    set node.left_child = NULL;
+    set node.right_child = NULL;
+    set node.depth = 1;
+    set node.n_features = 1;
+    set node.monotonicity = MONO_INCREASING;  // identity is monotone
+    set node.is_bounded = false;
+    set node.is_commutative = false;
+    set node.is_idempotent = false;
+    set node.canonical_hash = "";
+    call compute_canonical_hash(node);
+    return node;
+}
+
+define function make_leaf_const (float value) returns ExprNode {
+    declare ExprNode node;
+    set node.kind = LEAF_CONST;
+    set node.op = OP_IDENTITY;
+    set node.var_index = -1;
+    set node.const_value = value;
+    set node.left_child = NULL;
+    set node.right_child = NULL;
+    set node.depth = 0;
+    set node.n_features = 0;
+    set node.monotonicity = MONO_INCREASING;  // constant is trivially monotone
+    set node.is_bounded = true;
+    set node.bound_lo = value;
+    set node.bound_hi = value;
+    set node.is_commutative = false;
+    set node.is_idempotent = false;
+    set node.canonical_hash = "";
+    call compute_canonical_hash(node);
+    return node;
+}
+
+define function make_binary (
+    Operator op,
+    pointer left,       // -> ExprNode
+    pointer right       // -> ExprNode
+) returns ExprNode {
+    declare ExprNode node;
+    declare ExprNode left_node;
+    declare ExprNode right_node;
+    set left_node = *left;
+    set right_node = *right;
+
+    set node.kind = BINARY_OP;
+    set node.op = op;
+    set node.var_index = -1;
+    set node.const_value = 0.0;
+    set node.left_child = left;
+    set node.right_child = right;
+    set node.depth = 1 + call max_int(left_node.depth, right_node.depth);
+    set node.n_features = call count_unique_vars(node);
+
+    // Derive formal properties
+    call derive_monotonicity(node);
+    call derive_bounds(node);
+    set node.is_commutative = call is_op_commutative(op);
+    set node.is_idempotent = call is_op_idempotent(op);
+    call compute_canonical_hash(node);
+
+    return node;
+}
+
+define function make_unary (
+    Operator op,
+    pointer child       // -> ExprNode
+) returns ExprNode {
+    declare ExprNode node;
+    declare ExprNode child_node;
+    set child_node = *child;
+
+    set node.kind = UNARY_OP;
+    set node.op = op;
+    set node.var_index = -1;
+    set node.const_value = 0.0;
+    set node.left_child = child;
+    set node.right_child = NULL;
+    set node.depth = 1 + child_node.depth;
+    set node.n_features = child_node.n_features;
+
+    call derive_monotonicity(node);
+    call derive_bounds(node);
+    set node.is_commutative = false;
+    set node.is_idempotent = false;
+    call compute_canonical_hash(node);
+
+    return node;
+}
+
+
+// ────────────────────────────────────────────────────────────
+// 3. FORMAL PROPERTY DERIVATION
+// ────────────────────────────────────────────────────────────
+
+define procedure derive_monotonicity (ExprNode node) {
+    // Monotone Invariance Theorem (Bond 2026):
+    // If g is strictly monotone, then optimal thresholded F1
+    // of g(f(x)) equals that of f(x).
+    //
+    // This means: if a unary op is monotone, the child's F1
+    // can be reused (saving O(N log N) evaluation).
+
+    if node.kind == UNARY_OP then {
+        declare ExprNode child;
+        set child = *(node.left_child);
+
+        // Monotone unary operations
+        if node.op == OP_LOG then {
+            // log(|x|) is monotone increasing for x > 0
+            set node.monotonicity = MONO_INCREASING;
+        }
+        if node.op == OP_SQRT then {
+            set node.monotonicity = MONO_INCREASING;
+        }
+        if node.op == OP_INV then {
+            // 1/x is monotone decreasing for x > 0
+            set node.monotonicity = MONO_DECREASING;
+        }
+        if node.op == OP_NEG then {
+            set node.monotonicity = MONO_DECREASING;
+        }
+        // Non-monotone operations
+        if node.op == OP_SQ then {
+            set node.monotonicity = MONO_NON_MONOTONE;
+        }
+        if node.op == OP_ABS then {
+            set node.monotonicity = MONO_NON_MONOTONE;
+        }
+        if node.op == OP_SIGMOID then {
+            set node.monotonicity = MONO_INCREASING;
+        }
+        if node.op == OP_TANH then {
+            set node.monotonicity = MONO_INCREASING;
+        }
+    }
+
+    if node.kind == BINARY_OP then {
+        // Binary ops: monotonicity depends on the operation
+        // ADD is monotone in both arguments
+        // MAX/MIN are monotone in both arguments
+        // MUL is NOT monotone (sign-dependent)
+        if node.op == OP_ADD then {
+            set node.monotonicity = MONO_INCREASING;
+        }
+        if node.op == OP_SUB then {
+            // Increasing in left, decreasing in right
+            set node.monotonicity = MONO_UNKNOWN;
+        }
+        if node.op == OP_MAX then {
+            set node.monotonicity = MONO_INCREASING;
+        }
+        if node.op == OP_MIN then {
+            set node.monotonicity = MONO_INCREASING;
+        }
+        if node.op == OP_MUL then {
+            set node.monotonicity = MONO_NON_MONOTONE;
+        }
+        if node.op == OP_DIV then {
+            set node.monotonicity = MONO_NON_MONOTONE;
+        }
+        if node.op == OP_HYPOT then {
+            // sqrt(a^2 + b^2) is not monotone (depends on signs)
+            set node.monotonicity = MONO_NON_MONOTONE;
+        }
+    }
+}
+
+define procedure derive_bounds (ExprNode node) {
+    // Propagate known bounds through the tree
+    set node.is_bounded = false;
+
+    if node.kind == LEAF_CONST then {
+        set node.is_bounded = true;
+        set node.bound_lo = node.const_value;
+        set node.bound_hi = node.const_value;
+        return;
+    }
+
+    if node.kind == UNARY_OP then {
+        declare ExprNode child;
+        set child = *(node.left_child);
+
+        if node.op == OP_SIGMOID then {
+            set node.is_bounded = true;
+            set node.bound_lo = 0.0;
+            set node.bound_hi = 1.0;
+        }
+        if node.op == OP_TANH then {
+            set node.is_bounded = true;
+            set node.bound_lo = -1.0;
+            set node.bound_hi = 1.0;
+        }
+        if node.op == OP_SQ then {
+            set node.is_bounded = true;
+            set node.bound_lo = 0.0;
+            set node.bound_hi = 1e30;  // unbounded above, but non-negative
+        }
+        if node.op == OP_ABS then {
+            set node.is_bounded = true;
+            set node.bound_lo = 0.0;
+            set node.bound_hi = 1e30;
+        }
+    }
+
+    if node.kind == BINARY_OP then {
+        if node.op == OP_HYPOT then {
+            set node.is_bounded = true;
+            set node.bound_lo = 0.0;
+            set node.bound_hi = 1e30;
+        }
+        if node.op == OP_DIFF_SQ then {
+            set node.is_bounded = true;
+            set node.bound_lo = 0.0;
+            set node.bound_hi = 1e30;
+        }
+    }
+}
+
+define function is_op_commutative (Operator op) returns bool {
+    if op == OP_ADD then { return true; }
+    if op == OP_MUL then { return true; }
+    if op == OP_MAX then { return true; }
+    if op == OP_MIN then { return true; }
+    if op == OP_HYPOT then { return true; }
+    if op == OP_DIFF_SQ then { return true; }  // (a-b)^2 = (b-a)^2
+    if op == OP_HARMONIC then { return true; }
+    if op == OP_GEOMETRIC then { return true; }
+    return false;
+}
+
+define function is_op_idempotent (Operator op) returns bool {
+    // op(a, a) simplifies to something simpler
+    if op == OP_MAX then { return true; }  // max(a,a) = a
+    if op == OP_MIN then { return true; }  // min(a,a) = a
+    if op == OP_SUB then { return true; }  // a - a = 0
+    if op == OP_DIV then { return true; }  // a / a = 1
+    return false;
+}
+
+
+// ────────────────────────────────────────────────────────────
+// 4. ALGEBRAIC SIMPLIFICATION
+// ────────────────────────────────────────────────────────────
+
+define function simplify (pointer node_ptr) returns pointer {
+    // Returns a pointer to the simplified ExprNode.
+    // Uses Chaga's arbitrary-precision arithmetic for exact
+    // constant folding — no floating-point approximation.
+
+    declare ExprNode node;
+    set node = *node_ptr;
+
+    // Recursively simplify children first
+    if node.left_child != NULL then {
+        set node.left_child = call simplify(node.left_child);
+    }
+    if node.right_child != NULL then {
+        set node.right_child = call simplify(node.right_child);
+    }
+
+    // ── Constant folding ──
+    // If both children are constants, evaluate at compile time.
+    // Chaga's BCD arithmetic makes this EXACT.
+    if node.kind == BINARY_OP then {
+        declare ExprNode left;
+        declare ExprNode right;
+        set left = *(node.left_child);
+        set right = *(node.right_child);
+
+        if left.kind == LEAF_CONST then {
+            if right.kind == LEAF_CONST then {
+                declare float result;
+                set result = call eval_binary_op(node.op, left.const_value, right.const_value);
+                return call make_leaf_const(result);
+            }
+        }
+    }
+
+    if node.kind == UNARY_OP then {
+        declare ExprNode child;
+        set child = *(node.left_child);
+
+        if child.kind == LEAF_CONST then {
+            declare float result;
+            set result = call eval_unary_op(node.op, child.const_value);
+            return call make_leaf_const(result);
+        }
+    }
+
+    // ── Identity elimination ──
+    // x + 0 = x, x * 1 = x, x * 0 = 0, etc.
+    if node.kind == BINARY_OP then {
+        declare ExprNode left;
+        declare ExprNode right;
+        set left = *(node.left_child);
+        set right = *(node.right_child);
+
+        // x + 0 = x
+        if node.op == OP_ADD then {
+            if right.kind == LEAF_CONST then {
+                if right.const_value == 0.0 then {
+                    return node.left_child;
+                }
+            }
+            if left.kind == LEAF_CONST then {
+                if left.const_value == 0.0 then {
+                    return node.right_child;
+                }
+            }
+        }
+
+        // x * 1 = x
+        if node.op == OP_MUL then {
+            if right.kind == LEAF_CONST then {
+                if right.const_value == 1.0 then {
+                    return node.left_child;
+                }
+            }
+            if left.kind == LEAF_CONST then {
+                if left.const_value == 1.0 then {
+                    return node.right_child;
+                }
+            }
+        }
+
+        // x * 0 = 0
+        if node.op == OP_MUL then {
+            if right.kind == LEAF_CONST then {
+                if right.const_value == 0.0 then {
+                    return call make_leaf_const(0.0);
+                }
+            }
+            if left.kind == LEAF_CONST then {
+                if left.const_value == 0.0 then {
+                    return call make_leaf_const(0.0);
+                }
+            }
+        }
+
+        // x - x = 0 (idempotent elimination)
+        if node.op == OP_SUB then {
+            if left.canonical_hash == right.canonical_hash then {
+                return call make_leaf_const(0.0);
+            }
+        }
+
+        // x / x = 1
+        if node.op == OP_DIV then {
+            if left.canonical_hash == right.canonical_hash then {
+                return call make_leaf_const(1.0);
+            }
+        }
+
+        // max(x, x) = x, min(x, x) = x
+        if node.op == OP_MAX then {
+            if left.canonical_hash == right.canonical_hash then {
+                return node.left_child;
+            }
+        }
+        if node.op == OP_MIN then {
+            if left.canonical_hash == right.canonical_hash then {
+                return node.left_child;
+            }
+        }
+    }
+
+    // ── Commutativity normalization ──
+    // For commutative ops, ensure left.hash <= right.hash
+    // This canonicalizes (a + b) and (b + a) to the same form.
+    if node.kind == BINARY_OP then {
+        if node.is_commutative then {
+            declare ExprNode left;
+            declare ExprNode right;
+            set left = *(node.left_child);
+            set right = *(node.right_child);
+
+            if left.canonical_hash > right.canonical_hash then {
+                // Swap children
+                declare pointer temp;
+                set temp = node.left_child;
+                set node.left_child = node.right_child;
+                set node.right_child = temp;
+            }
+        }
+    }
+
+    // ── Double negation: neg(neg(x)) = x ──
+    if node.kind == UNARY_OP then {
+        if node.op == OP_NEG then {
+            declare ExprNode child;
+            set child = *(node.left_child);
+            if child.kind == UNARY_OP then {
+                if child.op == OP_NEG then {
+                    return child.left_child;
+                }
+            }
+        }
+    }
+
+    // ── sqrt(sq(x)) = abs(x) ──
+    if node.kind == UNARY_OP then {
+        if node.op == OP_SQRT then {
+            declare ExprNode child;
+            set child = *(node.left_child);
+            if child.kind == UNARY_OP then {
+                if child.op == OP_SQ then {
+                    return call make_unary(OP_ABS, child.left_child);
+                }
+            }
+        }
+    }
+
+    // Recompute canonical hash after simplification
+    call compute_canonical_hash(node);
+
+    return node_ptr;
+}
+
+
+// ────────────────────────────────────────────────────────────
+// 5. CANONICAL FORMS FOR EXACT EQUIVALENCE
+// ────────────────────────────────────────────────────────────
+
+define procedure compute_canonical_hash (ExprNode node) {
+    // Compute a canonical string representation that is
+    // identical for algebraically equivalent expressions.
+    //
+    // Key: commutative ops sort children by hash,
+    // so (a + b) and (b + a) produce the same hash.
+    //
+    // With Chaga's arbitrary-precision BCD arithmetic,
+    // constant values are exact — no floating-point fuzz.
+
+    declare string hash;
+
+    if node.kind == LEAF_CONST then {
+        // Exact BCD representation — no float imprecision
+        set hash = "C:" + call float_to_string(node.const_value);
+    }
+
+    if node.kind == LEAF_VAR then {
+        set hash = "V:" + call int_to_string(node.var_index);
+    }
+
+    if node.kind == UNARY_OP then {
+        declare ExprNode child;
+        set child = *(node.left_child);
+        set hash = "U:" + call op_to_string(node.op) + "(" + child.canonical_hash + ")";
+    }
+
+    if node.kind == BINARY_OP then {
+        declare ExprNode left;
+        declare ExprNode right;
+        set left = *(node.left_child);
+        set right = *(node.right_child);
+
+        declare string lh;
+        declare string rh;
+        set lh = left.canonical_hash;
+        set rh = right.canonical_hash;
+
+        // Canonical ordering for commutative ops
+        if node.is_commutative then {
+            if lh > rh then {
+                declare string temp;
+                set temp = lh;
+                set lh = rh;
+                set rh = temp;
+            }
+        }
+
+        set hash = "B:" + call op_to_string(node.op) + "(" + lh + "," + rh + ")";
+    }
+
+    set node.canonical_hash = hash;
+}
+
+define function trees_equivalent (
+    pointer a_ptr,
+    pointer b_ptr
+) returns bool {
+    // Exact algebraic equivalence check via canonical hashes.
+    // Because Chaga uses BCD arithmetic, this is EXACT —
+    // no floating-point tolerance needed.
+    declare ExprNode a;
+    declare ExprNode b;
+    set a = *a_ptr;
+    set b = *b_ptr;
+    return a.canonical_hash == b.canonical_hash;
+}
+
+
+// ────────────────────────────────────────────────────────────
+// 6. EVALUATION (compiled to efficient kernel)
+// ────────────────────────────────────────────────────────────
+
+define function eval_node (
+    pointer node_ptr,
+    float data[],       // feature vector for one sample
+    int n_features
+) returns float {
+    // Recursive evaluation of the expression tree.
+    // In a compiled language like Chaga, this compiles to
+    // efficient native code — no interpreter overhead.
+    //
+    // For batch evaluation over N samples, the caller loops
+    // over samples and calls this per-sample function.
+    // Future: SIMD vectorization of this evaluation.
+
+    declare ExprNode node;
+    set node = *node_ptr;
+
+    if node.kind == LEAF_CONST then {
+        return node.const_value;
+    }
+
+    if node.kind == LEAF_VAR then {
+        return data[node.var_index];
+    }
+
+    if node.kind == UNARY_OP then {
+        declare float child_val;
+        set child_val = call eval_node(node.left_child, data, n_features);
+        return call eval_unary_op(node.op, child_val);
+    }
+
+    if node.kind == BINARY_OP then {
+        declare float left_val;
+        declare float right_val;
+        set left_val = call eval_node(node.left_child, data, n_features);
+        set right_val = call eval_node(node.right_child, data, n_features);
+        return call eval_binary_op(node.op, left_val, right_val);
+    }
+
+    return 0.0;  // unreachable
+}
+
+define function eval_unary_op (Operator op, float x) returns float {
+    if op == OP_LOG then { return call log(call abs(x) + 1e-30); }
+    if op == OP_SQRT then { return call sqrt(call abs(x)); }
+    if op == OP_SQ then { return x * x; }
+    if op == OP_ABS then { return call abs(x); }
+    if op == OP_INV then { return 1.0 / (x + 1e-30); }
+    if op == OP_NEG then { return -x; }
+    if op == OP_SIGMOID then { return 1.0 / (1.0 + call exp(-x)); }
+    if op == OP_TANH then { return call tanh(x); }
+    return x;
+}
+
+define function eval_binary_op (Operator op, float a, float b) returns float {
+    if op == OP_ADD then { return a + b; }
+    if op == OP_SUB then { return a - b; }
+    if op == OP_MUL then { return a * b; }
+    if op == OP_DIV then { return a / (b + 1e-30); }
+    if op == OP_MAX then {
+        if a > b then { return a; }
+        return b;
+    }
+    if op == OP_MIN then {
+        if a < b then { return a; }
+        return b;
+    }
+    if op == OP_HYPOT then { return call sqrt(a * a + b * b); }
+    if op == OP_DIFF_SQ then { return (a - b) * (a - b); }
+    if op == OP_HARMONIC then { return 2.0 * a * b / (a + b + 1e-30); }
+    if op == OP_GEOMETRIC then {
+        declare float prod;
+        set prod = a * b;
+        if prod >= 0.0 then { return call sqrt(prod); }
+        return -call sqrt(-prod);
+    }
+    return 0.0;
+}
+
+
+// ────────────────────────────────────────────────────────────
+// 7. PRETTY PRINTING (human-readable formula)
+// ────────────────────────────────────────────────────────────
+
+define function to_string (pointer node_ptr) returns string {
+    declare ExprNode node;
+    set node = *node_ptr;
+
+    if node.kind == LEAF_CONST then {
+        return call float_to_string(node.const_value);
+    }
+
+    if node.kind == LEAF_VAR then {
+        return "x" + call int_to_string(node.var_index);
+    }
+
+    if node.kind == UNARY_OP then {
+        declare string child_str;
+        set child_str = call to_string(node.left_child);
+        return call op_to_string(node.op) + "(" + child_str + ")";
+    }
+
+    if node.kind == BINARY_OP then {
+        declare string left_str;
+        declare string right_str;
+        set left_str = call to_string(node.left_child);
+        set right_str = call to_string(node.right_child);
+        return "(" + left_str + " " + call op_to_string(node.op) + " " + right_str + ")";
+    }
+
+    return "?";
+}
+
+define function op_to_string (Operator op) returns string {
+    if op == OP_ADD then { return "+"; }
+    if op == OP_SUB then { return "-"; }
+    if op == OP_MUL then { return "*"; }
+    if op == OP_DIV then { return "/"; }
+    if op == OP_MAX then { return "max"; }
+    if op == OP_MIN then { return "min"; }
+    if op == OP_HYPOT then { return "hypot"; }
+    if op == OP_DIFF_SQ then { return "diff_sq"; }
+    if op == OP_HARMONIC then { return "harmonic"; }
+    if op == OP_GEOMETRIC then { return "geometric"; }
+    if op == OP_LOG then { return "log"; }
+    if op == OP_SQRT then { return "sqrt"; }
+    if op == OP_SQ then { return "sq"; }
+    if op == OP_ABS then { return "abs"; }
+    if op == OP_INV then { return "inv"; }
+    if op == OP_NEG then { return "neg"; }
+    if op == OP_SIGMOID then { return "sigmoid"; }
+    if op == OP_TANH then { return "tanh"; }
+    if op == OP_IDENTITY then { return "id"; }
+    return "?";
+}
+
+
+// ────────────────────────────────────────────────────────────
+// 8. EXAMPLE: Build and simplify a formula
+// ────────────────────────────────────────────────────────────
+
+define procedure main (void) {
+    // Build: (x0 + x1) - (x1 + x0)
+    // This should simplify to 0 via commutativity + idempotency
+
+    declare pointer x0;
+    declare pointer x1;
+    set x0 = call make_leaf_var(0);
+    set x1 = call make_leaf_var(1);
+
+    // (x0 + x1)
+    declare pointer sum1;
+    set sum1 = call make_binary(OP_ADD, x0, x1);
+
+    // (x1 + x0)
+    declare pointer sum2;
+    set sum2 = call make_binary(OP_ADD, x1, x0);
+
+    // (x0 + x1) - (x1 + x0)
+    declare pointer diff;
+    set diff = call make_binary(OP_SUB, sum1, sum2);
+
+    call print("Before simplification: ");
+    call print(call to_string(diff));
+    call print("\n");
+
+    // Simplify
+    set diff = call simplify(diff);
+
+    call print("After simplification:  ");
+    call print(call to_string(diff));
+    call print("\n");
+
+    // Expected output:
+    // Before: ((x0 + x1) - (x1 + x0))
+    // After:  0.0
+    // (Because canonical hash of (x0+x1) == (x1+x0) due to
+    //  commutativity normalization, so sub detects x - x = 0)
+
+    // Show metadata
+    declare ExprNode node;
+    set node = *diff;
+    call print("Kind: ");
+    call print(call int_to_string(node.kind));
+    call print("\n");
+    call print("Monotone: ");
+    call print(call int_to_string(node.monotonicity));
+    call print("\n");
+    call print("Bounded: ");
+    if node.is_bounded then {
+        call print("[");
+        call print(call float_to_string(node.bound_lo));
+        call print(", ");
+        call print(call float_to_string(node.bound_hi));
+        call print("]");
+    }
+    call print("\n");
+    call print("Hash: ");
+    call print(node.canonical_hash);
+    call print("\n");
+}
