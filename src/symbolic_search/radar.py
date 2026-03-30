@@ -351,82 +351,174 @@ class TheoryRadar:
             radar, result = TheoryRadar.autotune(X_train, y_train)
             print(result.formula, result.f1)
         """
+        from symbolic_search._ops import BINARY_OPS_MINIMAL, UNARY_OPS_MINIMAL
+
         t0 = time.time()
         N, d = X.shape
+        y_bool = np.asarray(y, dtype=bool)
+
+        # Feature importance pre-filter via mutual information
+        feat_used = feature_names
+        X_used = X
+        try:
+            from sklearn.feature_selection import mutual_info_classif
+
+            mi = mutual_info_classif(X, y_bool, random_state=42)
+            important = np.where(mi > 0.1 * mi.max())[0]
+            if 3 <= len(important) < d:
+                X_used = X[:, important]
+                feat_used = [feature_names[i] for i in important] if feature_names else None
+                if verbose:
+                    log.info("  autotune: MI filter %d -> %d features", d, len(important))
+        except Exception:
+            pass
+
+        d_f = X_used.shape[1]
 
         # Hold out 20% for validation
         rng = np.random.RandomState(42)
         idx = rng.permutation(N)
         n_val = max(20, int(0.2 * N))
-        val_idx, train_idx = idx[:n_val], idx[n_val:]
-        X_tr, y_tr = X[train_idx], y[train_idx]
-        _X_val, _y_val = X[val_idx], y[val_idx]
+        X_tr, y_tr = X_used[idx[n_val:]], y_bool[idx[n_val:]]
 
-        configs = [
-            # (projection, n_subspaces, subspace_k, max_depth, label)
-            (None, 1, d, 3, "raw_d3"),
-            ("pca", 1, min(d + 8, d + 8), 3, "pca_d3"),
-            ("tucker", 1, min(d + 8, d + 8), 3, "tucker_d3"),
-            (["pca", "tucker"], 1, min(d + 16, d + 16), 3, "pca+tucker_d3"),
-            (None, 10, min(8, d), 3, "fuzz10_d3"),
-            ("pca", 10, min(12, d + 8), 3, "pca_fuzz10_d3"),
-            ("tucker", 10, min(12, d + 8), 3, "tucker_fuzz10_d3"),
-            (None, 5, min(6, d), 4, "fuzz5_d4"),
-            ("kernel", 1, min(d + 8, d + 8), 3, "kernel_d3"),
-            ("kernel", 10, min(12, d + 8), 3, "kernel_fuzz10_d3"),
-        ]
+        # Build config space: projection × components × ops × fuzzing
+        configs = []
+        for proj in [None, "pca", "pls"]:
+            for nc in [4, 8]:
+                sk = d_f if proj is None else min(d_f + nc, d_f + nc)
+                configs.append(
+                    dict(
+                        projection=proj,
+                        n_components=nc,
+                        n_subspaces=1,
+                        subspace_k=sk,
+                        max_depth=3,
+                        binary_ops=None,
+                        unary_ops=None,
+                        label=f"{proj or 'raw'}_c{nc}",
+                    )
+                )
+        # Fuzzing variants
+        for proj in [None, "pca", "pls"]:
+            sk = min(10, d_f + 4) if proj is None else min(12, d_f + 8)
+            configs.append(
+                dict(
+                    projection=proj,
+                    n_components=8,
+                    n_subspaces=5,
+                    subspace_k=sk,
+                    max_depth=3,
+                    binary_ops=None,
+                    unary_ops=None,
+                    label=f"{proj or 'raw'}_fuzz",
+                )
+            )
+        # Minimal ops (less overfitting)
+        for proj in ["pls", "pca"]:
+            configs.append(
+                dict(
+                    projection=proj,
+                    n_components=8,
+                    n_subspaces=1,
+                    subspace_k=min(d_f + 8, d_f + 8),
+                    max_depth=3,
+                    binary_ops=BINARY_OPS_MINIMAL,
+                    unary_ops=UNARY_OPS_MINIMAL,
+                    label=f"{proj}_minimal",
+                )
+            )
+        # Combined
+        configs.append(
+            dict(
+                projection=["pca", "pls"],
+                n_components=4,
+                n_subspaces=3,
+                subspace_k=min(d_f + 8, d_f + 8),
+                max_depth=3,
+                binary_ops=None,
+                unary_ops=None,
+                label="pca+pls",
+            )
+        )
+        # Kernel
+        configs.append(
+            dict(
+                projection="kernel",
+                n_components=8,
+                n_subspaces=1,
+                subspace_k=min(d_f + 8, d_f + 8),
+                max_depth=3,
+                binary_ops=None,
+                unary_ops=None,
+                label="kernel",
+            )
+        )
 
-        best_val_f1 = 0.0
-        best_radar = None
-        best_result = None
-        best_label = ""
+        if verbose:
+            log.info("  autotune: %d configs, %d features", len(configs), d_f)
 
-        for proj, n_sub, sk, md, label in configs:
+        # Hyperband: round1 (all, 2K exp) -> round2 (top half, 5K) -> round3 (top 3, 15K)
+        budgets = [(configs, 2000), (None, 5000), (None, 15000)]
+        scored = []
+
+        for round_cfgs, budget in budgets:
             if time.time() - t0 > max_time * 0.9:
-                if verbose:
-                    log.info("  autotune: time limit reached at %s", label)
                 break
 
-            try:
-                radar = TheoryRadar(
-                    X_tr,
-                    y_tr,
-                    feature_names=feature_names,
-                    projection=proj,
-                    n_projection_components=8,
-                    n_subspaces=n_sub,
-                    subspace_k=sk,
-                )
+            if round_cfgs is None:
+                n_keep = 3 if budget >= 15000 else max(3, len(scored) // 2)
+                scored.sort(key=lambda x: -x[0])
+                round_cfgs = [s[1] for s in scored[:n_keep]]
+                scored = []
 
-                result = radar.search(
-                    mode="fast",
-                    max_depth=md,
-                    max_expansions=10000,
-                    verbose=False,
-                )
+            for cfg in round_cfgs:
+                if time.time() - t0 > max_time * 0.9:
+                    break
+                try:
+                    radar = TheoryRadar(
+                        X_tr,
+                        y_tr,
+                        feature_names=feat_used,
+                        projection=cfg["projection"],
+                        n_projection_components=cfg["n_components"],
+                        n_subspaces=cfg["n_subspaces"],
+                        subspace_k=cfg["subspace_k"],
+                        binary_ops=cfg["binary_ops"],
+                        unary_ops=cfg["unary_ops"],
+                    )
+                    result = radar.search(
+                        mode="fast",
+                        max_depth=cfg["max_depth"],
+                        max_expansions=budget,
+                        verbose=False,
+                    )
+                    scored.append((result.f1, cfg, radar, result))
+                    if verbose:
+                        log.info(
+                            "  [%s] F1=%.4f %s (%.0fs)",
+                            cfg["label"],
+                            result.f1,
+                            result.formula[:25],
+                            time.time() - t0,
+                        )
+                except Exception as e:
+                    if verbose:
+                        log.info("  [%s] failed: %s", cfg["label"], e)
 
-                # TODO: proper validation replay (currently using train F1 as proxy)
-                elapsed = time.time() - t0
-                if verbose:
-                    log.info("  autotune [%s] F1=%.4f (%.1fs)", label, result.f1, elapsed)
+        if not scored:
+            radar = TheoryRadar(X_tr, y_tr, feature_names=feat_used)
+            result = radar.search(mode="fast", max_depth=3, verbose=False)
+            return radar, result
 
-                if result.f1 > best_val_f1:
-                    best_val_f1 = result.f1
-                    best_radar = radar
-                    best_result = result
-                    best_label = label
-
-            except Exception as e:
-                if verbose:
-                    log.info("  autotune [%s] failed: %s", label, e)
-                continue
+        scored.sort(key=lambda x: -x[0])
+        _, best_cfg, best_radar, best_result = scored[0]
 
         if verbose:
             log.info(
-                "  autotune best: [%s] F1=%.4f formula=%s",
-                best_label,
-                best_val_f1,
-                best_result.formula[:40] if best_result else "none",
+                "  autotune WINNER: [%s] F1=%.4f %s",
+                best_cfg["label"],
+                best_result.f1,
+                best_result.formula[:40],
             )
 
         return best_radar, best_result

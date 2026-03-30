@@ -19,6 +19,8 @@ jobs:
         run: ruff check src/ tests/
       - name: Check formatting with ruff
         run: ruff format --check src/ tests/
+      # Note: run_*.py experiment scripts are excluded from lint
+      # (they use exec() patterns that violate E402/E401)
 
   test:
     runs-on: ubuntu-latest

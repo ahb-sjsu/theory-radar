@@ -6,7 +6,10 @@ Usage: python run_one.py <Name> <n_repeats> <beam_width> <n_subspaces> <subspace
 Handles dataset loading, categorical encoding, and target binarization
 for all 17 benchmark datasets.
 """
-import os, sys
+
+import os
+import sys
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -14,14 +17,14 @@ with open(os.path.join(os.path.dirname(__file__), "run_full_pipeline.py")) as f:
     code = f.read().split("def main")[0]
 exec(code)
 
-import logging, json
+import logging
+import json
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger()
 
 from sklearn.datasets import load_breast_cancer, load_wine, fetch_openml, fetch_covtype
 from sklearn.preprocessing import StandardScaler, LabelEncoder, OrdinalEncoder
-from sklearn.compose import ColumnTransformer
-import pandas as pd
 
 name = sys.argv[1]
 nr, bw, ns, sk = int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
@@ -46,24 +49,24 @@ def load_dataset(name):
 
     # OpenML datasets with known target encodings
     OPENML = {
-        "Diabetes":     ("diabetes",                1, lambda t: (t == "tested_positive").astype(int)),
-        "Banknote":     ("banknote-authentication",  1, None),
-        "Ionosphere":   ("ionosphere",              1, lambda t: (t == "g").astype(int)),
-        "EEG":          ("eeg-eye-state",           1, None),
-        "Magic":        ("MagicTelescope",          1, None),
-        "Electricity":  ("electricity",             1, None),
-        "MiniBooNE":    ("MiniBooNE",               1, None),
-        "Heart":        ("heart-statlog",           1, None),
-        "Sonar":        ("sonar",                   1, None),
-        "Spambase":     ("spambase",                1, None),
-        "Australian":   ("australian",              1, None),
+        "Diabetes": ("diabetes", 1, lambda t: (t == "tested_positive").astype(int)),
+        "Banknote": ("banknote-authentication", 1, None),
+        "Ionosphere": ("ionosphere", 1, lambda t: (t == "g").astype(int)),
+        "EEG": ("eeg-eye-state", 1, None),
+        "Magic": ("MagicTelescope", 1, None),
+        "Electricity": ("electricity", 1, None),
+        "MiniBooNE": ("MiniBooNE", 1, None),
+        "Heart": ("heart-statlog", 1, None),
+        "Sonar": ("sonar", 1, None),
+        "Spambase": ("spambase", 1, None),
+        "Australian": ("australian", 1, None),
     }
 
     # Datasets that need special handling
     SPECIAL = {
-        "German":   ("german-credit",   1),
-        "Adult":    ("adult",           1),
-        "HIGGS":    ("higgs",           1),
+        "German": ("german-credit", 1),
+        "Adult": ("adult", 1),
+        "HIGGS": ("higgs", 1),
         "Covertype": None,  # sklearn built-in
     }
 
@@ -87,7 +90,7 @@ def load_dataset(name):
 
         # Target encoding
         if target_fn is not None:
-            y = target_fn(ds.target.values if hasattr(ds.target, 'values') else ds.target)
+            y = target_fn(ds.target.values if hasattr(ds.target, "values") else ds.target)
         else:
             le = LabelEncoder()
             y = le.fit_transform(ds.target)
@@ -124,6 +127,7 @@ def load_dataset(name):
             feat_names.extend([f"c{i}" for i in range(cat_encoded.shape[1])])
 
         import numpy as np
+
         X = np.hstack(parts) if len(parts) > 1 else parts[0]
 
         # Handle NaN
@@ -143,12 +147,31 @@ def load_dataset(name):
 
 # Load and run
 X, y, feats = load_dataset(name)
-log.info("%s: N=%d d=%d prev=%.2f nr=%d bw=%d ns=%d sk=%d",
-         name, X.shape[0], X.shape[1], y.mean(), nr, bw, ns, sk)
+log.info(
+    "%s: N=%d d=%d prev=%.2f nr=%d bw=%d ns=%d sk=%d",
+    name,
+    X.shape[0],
+    X.shape[1],
+    y.mean(),
+    nr,
+    bw,
+    ns,
+    sk,
+)
 
-r = run_dataset(name, X, y, feats, n_repeats=nr, n_folds=5,
-                n_pca=8, max_depth=3, beam_width=bw,
-                n_subspaces=ns, subspace_k=sk)
+r = run_dataset(
+    name,
+    X,
+    y,
+    feats,
+    n_repeats=nr,
+    n_folds=5,
+    n_pca=8,
+    max_depth=3,
+    beam_width=bw,
+    n_subspaces=ns,
+    subspace_k=sk,
+)
 
 # Add metadata
 r["N"] = int(X.shape[0])

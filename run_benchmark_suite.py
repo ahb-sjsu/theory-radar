@@ -14,7 +14,10 @@ Datasets chosen for:
 - Rigor: all are standard benchmarks in ML literature
 """
 
-import os, sys, logging, json, time
+import os
+import logging
+import json
+import time
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -35,26 +38,21 @@ from batch_probe._thermal import _read_cpu_temp
 DATASETS = [
     # ── Already completed (skip if result exists) ──
     # BreastCancer, Wine, Diabetes, Banknote, EEG
-
     # ── Still running ──
     # Ionosphere, Magic
-
     # ── New: small classic benchmarks (N < 2K) ──
-    ("Heart",          "heart-statlog",        200, 100, 15, 12),
-    ("Sonar",          "sonar",                200, 100, 15, 12),
-
+    ("Heart", "heart-statlog", 200, 100, 15, 12),
+    ("Sonar", "sonar", 200, 100, 15, 12),
     # ── New: medium benchmarks (2K < N < 10K) ──
-    ("Spambase",       "spambase",             100, 100, 10, 10),
-    ("German",         "german-credit",        200, 100, 15, 12),
-    ("Australian",     "australian",           200, 100, 15, 12),
-
+    ("Spambase", "spambase", 100, 100, 10, 10),
+    ("German", "german-credit", 200, 100, 15, 12),
+    ("Australian", "australian", 200, 100, 15, 12),
     # ── New: large benchmarks (N > 10K) ──
-    ("Adult",          "adult",                 50,  50,  5,  8),
-    ("HIGGS",          "higgs",                 10,  20,  3,  6),
-
+    ("Adult", "adult", 50, 50, 5, 8),
+    ("HIGGS", "higgs", 10, 20, 3, 6),
     # ── Re-run: OOM datasets with reduced params ──
-    ("Electricity",    "electricity",           20,  30,  5,  6),
-    ("MiniBooNE",      "MiniBooNE",             10,  20,  3,  6),
+    ("Electricity", "electricity", 20, 30, 5, 6),
+    ("MiniBooNE", "MiniBooNE", 10, 20, 3, 6),
 ]
 
 
@@ -90,13 +88,9 @@ def main():
         if check_already_done(name):
             log.info("  SKIP: %s (already done)", name)
             continue
-        jobs.append((
-            name,
-            ["python", "run_one.py", name, str(nr), str(bw), str(ns), str(sk)]
-        ))
+        jobs.append((name, ["python", "run_one.py", name, str(nr), str(bw), str(ns), str(sk)]))
 
-    log.info("Launching %d datasets (%d skipped)", len(jobs),
-             len(DATASETS) - len(jobs))
+    log.info("Launching %d datasets (%d skipped)", len(jobs), len(DATASETS) - len(jobs))
 
     if not jobs:
         log.info("All datasets complete!")
@@ -104,10 +98,10 @@ def main():
 
     # Run with thermal management
     mgr = ThermalJobManager(
-        target_temp=84.0,      # conservative target
-        max_concurrent=3,      # at most 3 parallel
+        target_temp=84.0,  # conservative target
+        max_concurrent=3,  # at most 3 parallel
         settle_time=15.0,
-        cooldown_margin=4.0,   # launch only if temp < 80C
+        cooldown_margin=4.0,  # launch only if temp < 80C
         poll_interval=10.0,
     )
 
@@ -126,16 +120,38 @@ def main():
 
     # Compile all results
     log.info("\n" + "=" * 110)
-    log.info("%-15s %6s %3s  %-8s %-8s %-5s  %-30s  %-10s %-10s %-10s",
-             "Dataset", "N", "d", "Train", "Test", "Gap", "Formula",
-             "vs GB", "vs RF", "vs LR")
+    log.info(
+        "%-15s %6s %3s  %-8s %-8s %-5s  %-30s  %-10s %-10s %-10s",
+        "Dataset",
+        "N",
+        "d",
+        "Train",
+        "Test",
+        "Gap",
+        "Formula",
+        "vs GB",
+        "vs RF",
+        "vs LR",
+    )
     log.info("-" * 110)
 
     all_names = [
-        "breastcancer", "wine", "diabetes", "banknote", "ionosphere",
-        "eeg", "magic", "electricity", "miniboone",
-        "heart", "sonar", "spambase", "german", "australian",
-        "adult", "higgs",
+        "breastcancer",
+        "wine",
+        "diabetes",
+        "banknote",
+        "ionosphere",
+        "eeg",
+        "magic",
+        "electricity",
+        "miniboone",
+        "heart",
+        "sonar",
+        "spambase",
+        "german",
+        "australian",
+        "adult",
+        "higgs",
     ]
 
     for name in all_names:
@@ -143,14 +159,22 @@ def main():
             with open(f"/home/claude/tensor-3body/result_{name}.json") as f:
                 r = json.load(f)
             bl = r["baselines"]
-            log.info("%-15s %6d %3d  %.4f  %.4f  %.3f  %-30s  %5.1f %s  %5.1f %s  %5.1f %s",
-                     r["name"], r.get("N", 0), r.get("d", 0),
-                     r["train_f1"], r["test_f1"],
-                     r["train_f1"] - r["test_f1"],
-                     r["formula"][:30],
-                     bl["GB"]["sigma"], bl["GB"]["dir"],
-                     bl["RF"]["sigma"], bl["RF"]["dir"],
-                     bl["LR"]["sigma"], bl["LR"]["dir"])
+            log.info(
+                "%-15s %6d %3d  %.4f  %.4f  %.3f  %-30s  %5.1f %s  %5.1f %s  %5.1f %s",
+                r["name"],
+                r.get("N", 0),
+                r.get("d", 0),
+                r["train_f1"],
+                r["test_f1"],
+                r["train_f1"] - r["test_f1"],
+                r["formula"][:30],
+                bl["GB"]["sigma"],
+                bl["GB"]["dir"],
+                bl["RF"]["sigma"],
+                bl["RF"]["dir"],
+                bl["LR"]["sigma"],
+                bl["LR"]["dir"],
+            )
         except Exception:
             log.info("%-15s  (no result)", name)
 
