@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/theory-radar/"><img src="https://img.shields.io/pypi/v/theory-radar" alt="PyPI"/></a>
+  <a href="https://pypi.org/project/theory-radar/"><img src="https://img.shields.io/pypi/v/theory-radar?v=2" alt="PyPI"/></a>
   <a href="https://github.com/ahb-sjsu/theory-radar/actions"><img src="https://img.shields.io/github/actions/workflow/status/ahb-sjsu/theory-radar/ci.yml?branch=master" alt="CI"/></a>
   <img src="https://img.shields.io/badge/python-3.10+-blue" alt="Python"/>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License"/>
