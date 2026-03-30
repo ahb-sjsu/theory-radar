@@ -1,27 +1,41 @@
 """
-Theory Radar: A* formula search with provable DAG heuristic.
+Theory Radar: Symbolic formula search with configurable projections,
+meta-learned pruning, ensemble formulas, and autotune.
 
-Usage:
+Basic usage:
     from symbolic_search import TheoryRadar
+    radar = TheoryRadar(X, y)
+    result = radar.search(mode="fast")
+    print(result.formula, result.f1)
 
-    radar = TheoryRadar(X, y, feature_names=["age", "bmi", "glucose"])
+With PCA projections (access all features):
+    radar = TheoryRadar(X, y, projection="pca")
+    result = radar.search(mode="fast")
 
-    # Strict A* (provable optimality guarantee)
-    result = radar.search(mode="strict", f1_target=0.90)
+With Tucker decomposition (capture feature interactions):
+    radar = TheoryRadar(X, y, projection="tucker")
 
-    # Fast mode (empirical AUROC pruning, 10-100x faster)
-    result = radar.search(mode="fast", auroc_threshold=0.55)
+Combined projections + subspace fuzzing:
+    radar = TheoryRadar(X, y,
+        projection=["pca", "tucker"],
+        n_subspaces=10, subspace_k=12)
 
-    # Auto: strict first, fast fallback if timeout
-    result = radar.search(mode="auto", f1_target=0.90, timeout=60)
-
-    print(result.formula)     # "(bmi min age) + glucose"
-    print(result.f1)          # 0.694
-    print(result.guaranteed)  # True (strict mode)
+Autotune (find best configuration automatically):
+    radar, result = TheoryRadar.autotune(X, y, max_time=120)
 """
 
 from symbolic_search.radar import TheoryRadar, RadarResult
 from symbolic_search._search import SymbolicSearch, SearchResults
+from symbolic_search._projections import (
+    PCAProjection, PLSProjection, TuckerProjection, KernelProjection,
+    NeuralProjection, SparsePCAProjection, PROJECTIONS,
+)
 
-__all__ = ["TheoryRadar", "RadarResult", "SymbolicSearch", "SearchResults"]
-__version__ = "0.3.0"
+__all__ = [
+    "TheoryRadar", "RadarResult",
+    "SymbolicSearch", "SearchResults",
+    "PCAProjection", "PLSProjection", "TuckerProjection",
+    "KernelProjection", "NeuralProjection", "SparsePCAProjection",
+    "PROJECTIONS",
+]
+__version__ = "0.4.0"

@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="55%">
+      <stop offset="0%" stop-color="#f8f9fa"/>
+      <stop offset="100%" stop-color="#e9ecef"/>
+    </radialGradient>
+    <clipPath id="circle-clip">
+      <circle cx="200" cy="190" r="155"/>
+    </clipPath>
+  </defs>
+
+  <!-- Clean background -->
+  <rect width="400" height="400" fill="url(#bg)" rx="8"/>
+
+  <!-- Smith chart inspired: constant resistance circles (real axis) -->
+  <!-- These are the characteristic Smith chart arcs -->
+  <g clip-path="url(#circle-clip)" fill="none" stroke="#c5cdd5" stroke-width="0.5">
+    <!-- Outer boundary -->
+    <circle cx="200" cy="190" r="155"/>
+
+    <!-- Constant resistance circles (displaced along real axis) -->
+    <circle cx="278" cy="190" r="77"/>
+    <circle cx="316" cy="190" r="39"/>
+    <circle cx="239" cy="190" r="116"/>
+
+    <!-- Constant reactance arcs (Smith chart curves from top) -->
+    <path d="M 355,190 A 155,155 0 0,0 200,35" />
+    <path d="M 355,190 A 77,77 0 0,0 278,113" />
+    <path d="M 355,190 A 39,39 0 0,0 336,160" />
+    <path d="M 355,190 A 155,155 0 0,1 200,345" />
+    <path d="M 355,190 A 77,77 0 0,1 278,267" />
+    <path d="M 355,190 A 39,39 0 0,1 336,220" />
+
+    <!-- Real axis -->
+    <line x1="45" y1="190" x2="355" y2="190"/>
+  </g>
+
+  <!-- Formula search paths: flowing curves through the Smith space -->
+  <!-- These represent search trajectories finding optimal formulas -->
+
+  <!-- Primary search path (strong) -->
+  <path d="M 80,190 C 120,140 160,170 200,150 C 240,130 260,160 280,155"
+        fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round"
+        opacity="0.8"/>
+
+  <!-- Secondary path (exploring) -->
+  <path d="M 80,190 C 110,220 150,240 190,220 C 230,200 250,180 265,185"
+        fill="none" stroke="#2563eb" stroke-width="1.5" stroke-linecap="round"
+        opacity="0.4" stroke-dasharray="4,3"/>
+
+  <!-- Tertiary path (pruned — dead subtree) -->
+  <path d="M 80,190 C 100,170 130,120 155,105"
+        fill="none" stroke="#94a3b8" stroke-width="1" stroke-linecap="round"
+        opacity="0.3" stroke-dasharray="2,4"/>
+
+  <!-- Discovery points along the main path -->
+  <circle cx="200" cy="150" r="4" fill="#2563eb" opacity="0.5"/>
+  <circle cx="240" cy="138" r="3" fill="#2563eb" opacity="0.4"/>
+
+  <!-- The discovered formula: bright point at convergence -->
+  <circle cx="280" cy="155" r="7" fill="none" stroke="#2563eb" stroke-width="2" opacity="0.9"/>
+  <circle cx="280" cy="155" r="3" fill="#2563eb"/>
+
+  <!-- Origin point (search start) -->
+  <circle cx="80" cy="190" r="4" fill="#64748b"/>
+
+  <!-- Subtle coordinate markers -->
+  <g fill="#94a3b8" font-family="Georgia, serif" font-size="9" opacity="0.4">
+    <text x="42" y="194">0</text>
+    <text x="350" y="184">1</text>
+    <text x="194" y="30">j</text>
+    <text x="190" y="356">-j</text>
+  </g>
+
+  <!-- Title: elegant serif -->
+  <text x="200" y="392" text-anchor="middle"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="20" font-weight="normal" fill="#334155"
+        letter-spacing="5">THEORY RADAR</text>
+</svg>

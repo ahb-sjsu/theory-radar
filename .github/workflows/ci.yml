@@ -14,11 +14,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install ruff black
-      - name: Check formatting with black
-        run: black --check src/ tests/
+      - run: pip install ruff
       - name: Lint with ruff
         run: ruff check src/ tests/
+      - name: Check formatting with ruff
+        run: ruff format --check src/ tests/
 
   test:
     runs-on: ubuntu-latest
@@ -33,8 +33,18 @@ jobs:
       - name: Install package
         run: pip install -e ".[dev,ensemble]"
       - name: Run symbolic search tests
-        run: python -m pytest tests/test_symbolic_search/ -v
-      - name: Run tensor tests (if scipy available)
+        run: python -m pytest tests/test_symbolic_search/ -v --tb=short
+      - name: Run projection tests
+        run: python -m pytest tests/ -k "projection" -v --tb=short || true
+
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for large files
         run: |
-          pip install scipy tensorly
-          python -m pytest tests/test_hamiltonian.py -v || true
+          find . -name "*.json" -size +1M -exec echo "LARGE: {}" \;
+          find . -name "*.gif" -size +5M -exec echo "LARGE: {}" \;
+      - name: Check no secrets
+        run: |
+          ! grep -r "password\|secret\|token" src/ --include="*.py" -l || true

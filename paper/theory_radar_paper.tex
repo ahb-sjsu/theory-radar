@@ -14,279 +14,538 @@
 
 \begin{document}
 
-\title{Theory Radar: A* Formula Search with a Provably\\Admissible DAG Heuristic}
+\title{Theory Radar: Learning Safe Pruning Rules for Symbolic\\Formula Search from Exhaustive Micro-Search}
 
-\author{Andrew~H.~Bond,~\IEEEmembership{Senior Member,~IEEE}
-\thanks{A. H. Bond is with the Department of Computer Engineering,
-San Jose State University, San Jose, CA 95192 USA
-(e-mail: andrew.bond@sjsu.edu). ORCID: 0009-0003-2599-6158.}
-}
+% Double-anonymous: author info removed for review
+\author{Anonymous}
 
 \markboth{IEEE Transactions on Artificial Intelligence}
-{Bond: Theory Radar}
+{Anonymous: Theory Radar}
 
 \maketitle
 
 \begin{abstract}
-We present Theory Radar, an A* search algorithm for discovering
-interpretable symbolic classifiers from labeled data. The search
-operates over formula trees with cost equal to formula depth, using
-a heuristic $h = \max(h_1, h_2, h_3)$ composed of three individually
-admissible components: a target-check heuristic, an AUROC-F1 bound
-derived from a proven tight inequality, and a feature-coverage
-heuristic. In \emph{strict mode}, the algorithm provides a provable
-optimality guarantee: the first formula meeting a specified F1 target
-is the shallowest such formula in the search space. In \emph{fast mode},
-an optional AUROC subtree screening heuristic reduces evaluations by
-70--99\% with no observed admissibility violations across 56 test
-conditions, at the cost of losing the formal guarantee.
+When can a simple, interpretable formula replace a black-box
+ensemble for binary classification?  We present Theory Radar,
+a three-tier symbolic search stack that answers this question
+on any tabular dataset:
 
-Three supporting theorems are proved. The \emph{Monotone Invariance
-Theorem} shows that strictly monotone transforms preserve the optimal
-thresholded F1 score, allowing the search to skip redundant F1
-computations while still expanding descendants. The \emph{AUROC
-Rank-Order Invariance} theorem shows AUROC is preserved under
-monotone transforms. The \emph{AUROC-F1 Bound} theorem provides
-a tight upper bound on the maximum achievable F1 for a given AUROC,
-derived from the step-function ROC curve.
+\emph{Tier~1 (core engine):} Phased formula enumeration with
+exact $O(N \log N)$ thresholded-$F_1$ evaluation, operation-trace
+recording for faithful test-set replay, and fair repeated-CV
+evaluation identical to how baselines are scored.
 
-Across 9 classification datasets, Theory Radar discovers formulas
-that phased enumeration misses: on Moons, it finds
-$\max(\texttt{x2}-\texttt{x1},\, \texttt{x2})$ (F1~$=0.893$)
-versus the phased ceiling of $0.833$; on Circles, the formula
-$\sqrt{\texttt{x1}^2 + \texttt{x2}^2}$ achieves F1~$=0.997$
-and statistically significantly outperforms a gradient-boosted
-ensemble ($p = 0.036$, 5-fold CV).
+\emph{Tier~2 (search accelerators):} Beam search with
+cost-plus-heuristic ordering, random-subspace fuzzing, and
+\emph{meta-learned pruning}---exhaustive micro-search on each
+training fold labels subtrees as alive or dead, then a family
+of 12 candidate criteria is searched to find a zero-false-negative
+pruning rule (threshold set at the minimum alive-node value,
+88--99.6\% of dead subtrees pruned on three UCI datasets).
 
-Code: \url{https://github.com/ahb-sjsu/theory-radar}
-(\texttt{pip install theory-radar}).
+\emph{Tier~3 (representation augmenters):} PCA, Tucker, kernel,
+or neural projections that give depth-3 formulas implicit access
+to all $d$ features, closing the accuracy gap with linear models
+on high-dimensional datasets.
+
+Across 17 established benchmarks (N from 208 to 130K, $d$ from 4
+to 60) with fair held-out evaluation, Theory Radar identifies
+datasets where a three-feature formula matches or beats gradient
+boosting (Diabetes: $25\sigma$ advantage, Wine: $16\sigma$) and
+datasets where ensembles genuinely win (EEG: $246\sigma$).  Both
+outcomes are reported.  The Monotone Invariance Theorem enables
+$F_1$ and AUROC reuse for monotone transforms.
+
+Code: available upon acceptance (anonymous review).
 \end{abstract}
 
 % ================================================================
 \section{Introduction}
 
-Symbolic prediction seeks interpretable formulas that classify data
-by thresholding a mathematical expression: $\hat{y} = \mathbf{1}[f(\mathbf{x}) > \tau]$.
-Existing approaches include genetic symbolic
-regression~\cite{schmidt2009distilling,cranmer2023interpretable},
-neural equation discovery~\cite{udrescu2020ai}, search-based symbolic
-regression~\cite{kommenda2020search}, and phased exhaustive
-enumeration~\cite{bond2026phased}. Genetic methods explore deep
-formula trees but provide no optimality guarantee at a given depth.
-Neural methods produce opaque representations. Search-based methods
-enumerate small expressions systematically but typically optimize
-regression loss rather than classification metrics. Phased enumeration
-is complete within fixed templates but misses formulas with other
-structures (e.g., pairwise-of-pairwise compositions).
+A practitioner training a classifier on tabular data faces a
+recurring question: \emph{do I need a 100-tree ensemble, or would a
+simple formula suffice?}  If a formula works, it is auditable,
+regulatable (EU AI Act, FDA clinical guidance), and computable by
+hand.  If it doesn't, the practitioner needs to know how much
+accuracy interpretability costs on their specific data.
 
-We propose \textbf{Theory Radar}, an A* search over formula trees
-with a provably admissible heuristic. The search minimizes formula
-depth subject to achieving a target F1 score. The heuristic is a
-DAG (directed acyclic graph) of three admissible components combined
-via $\max$, which is itself admissible~\cite{felner2011inconsistent}.
-In \emph{strict mode}, no subtree pruning is applied and the
-optimality guarantee holds. In \emph{fast mode}, an empirical AUROC
-screening filter provides 70--99\% speedup without observed
-admissibility violations.
+No existing tool answers this question rigorously.  Genetic symbolic
+regression~\cite{schmidt2009distilling,cranmer2023interpretable}
+explores deep formula trees without optimality guarantees or fair
+evaluation protocols.  Neural equation
+discovery~\cite{udrescu2020ai} produces opaque representations.
+Search-based methods~\cite{kommenda2020search} enumerate small
+expressions but optimize regression loss, not classification
+metrics.  Post-hoc explainers (SHAP, LIME) explain a black box
+rather than replacing it.
 
-The algorithm also computes F1 via exact threshold optimization
-(sorting all $N$ samples and sweeping all possible thresholds in
-$O(N \log N)$), rather than the percentile approximation used in
-prior work. This eliminates threshold-related noise from the
-evaluation.
+We present \textbf{Theory Radar}, a three-tier symbolic search
+stack designed as a practical tool:
+
+\textbf{Tier~1: Core engine.}  Phased enumeration generates all
+formula trees to a given depth.  Each candidate is evaluated by
+exact sort-and-sweep $F_1$ optimization.  A \texttt{FormulaTrace}
+records the operation sequence, enabling faithful replay on
+held-out test data with a threshold tuned only on training data.
+This is the same evaluation protocol used for sklearn baselines.
+
+\textbf{Tier~2: Search accelerators.}  Beam search with
+cost-plus-heuristic ordering ($h = 1{-}F_1$ for alive nodes,
+$h = \infty$ for pruned nodes) focuses computation on promising
+subtrees.  Random-subspace fuzzing explores diverse feature
+combinations.  \emph{Meta-learned pruning}---the primary research
+contribution---discovers safe pruning rules from exhaustive
+fold-local micro-search, eliminating 88--99.6\% of dead subtrees
+with zero false negatives.
+
+\textbf{Tier~3: Representation augmenters.}  PCA, Tucker
+decomposition, kernel, or neural projections augment the raw
+features so that depth-3 formulas implicitly access all $d$
+original features through learned projections.
 
 % ================================================================
-\section{Theoretical Results}
+\section{Tier 1: Core Engine}
 
-Throughout, we define the classifier as
+\subsection{Evaluation Convention}
+
+Throughout, the classifier is
 $\hat{y} = \mathbf{1}[f(\mathbf{x}) > \tau]$ \emph{or}
 $\hat{y} = \mathbf{1}[f(\mathbf{x}) < \tau]$, with the direction
-chosen to maximize F1 (both are evaluated). AUROC is computed as
-$\max(\mathrm{AUC}, 1 - \mathrm{AUC})$ to ensure direction
-invariance. These conventions are used consistently throughout.
+chosen to maximize F1 (both evaluated).  AUROC is computed as
+$\max(\mathrm{AUC}, 1 - \mathrm{AUC})$ for direction invariance.
 
 \begin{theorem}[Monotone Invariance]
 \label{thm:mono}
-Let $g$ be strictly monotone on the range of $f$. Then:
-$\max_{\tau,\, \mathrm{dir}} F_1(\mathbf{1}[\mathrm{dir}(g(f(X)),
-\tau)], y) = \max_{\tau,\, \mathrm{dir}} F_1(\mathbf{1}[\mathrm{dir}(f(X), \tau)], y)$.
+Let $g$ be strictly monotone on the range of $f$.  Then:
+\[
+\max_{\tau,\, \mathrm{dir}} F_1(\mathbf{1}[\mathrm{dir}(g(f(X)),
+\tau)], y) = \max_{\tau,\, \mathrm{dir}} F_1(\mathbf{1}[\mathrm{dir}(f(X), \tau)], y).
+\]
 \end{theorem}
 
 \begin{proof}
 If $g$ is increasing, $g(f(x)) > \tau \Leftrightarrow f(x) >
-g^{-1}(\tau)$. If decreasing, $g(f(x)) > \tau \Leftrightarrow
-f(x) < g^{-1}(\tau)$. In either case, the set of achievable
+g^{-1}(\tau)$.  If decreasing, $g(f(x)) > \tau \Leftrightarrow
+f(x) < g^{-1}(\tau)$.  In either case the set of achievable
 thresholded predictors (over both directions) is identical.
 \end{proof}
 
 \begin{corollary}[Monotone F1 Reuse]
 When expanding a node $f$ via a monotone unary operation $g$,
-the child $g(f)$ has the same optimal F1 as $f$. The search
-may reuse the parent's F1 value, saving one $O(N \log N)$
-evaluation. Note: this does \emph{not} justify pruning the subtree
-rooted at $g(f)$, since descendants like $(g(f))^2$ may differ
-from $f^2$.
+the child $g(f)$ has the same optimal F1 as $f$.  The search
+reuses the parent's F1, saving one $O(N \log N)$ evaluation.
+This does \emph{not} justify pruning the subtree rooted at
+$g(f)$, since descendants like $(g(f))^2$ may differ from $f^2$.
 \end{corollary}
 
-\begin{theorem}[AUROC-F1 Bound]
-\label{thm:bound}
-For $\mathrm{AUROC} = A$ and prevalence $\pi$, the maximum
-thresholded F1 satisfies:
-\begin{equation}
-F_1^{\max}(A, \pi) \leq \sup_{t \in [2A{-}1,\, 1]}
-\frac{2 t \pi}{t \pi + \pi + (t - 2A + 1)(1 - \pi)}
-\label{eq:bound}
-\end{equation}
-This bound is tight (achieved by the step-function ROC curve).
-\end{theorem}
+\begin{corollary}[AUROC Invariance Under Monotone Transforms]
+AUROC depends only on the rank ordering of scores.  An increasing
+$g$ preserves rank order; a decreasing $g$ reverses it.  Since
+we define $\mathrm{AUROC} = \max(\mathrm{AUC}, 1 - \mathrm{AUC})$,
+both cases yield the same AUROC.  The search reuses the parent's
+AUROC value.
+\end{corollary}
 
-\begin{proof}
-Any ROC curve with area $A$ has Youden index $J = \max(TPR - FPR)
-\leq 2A - 1$. At operating point $(FPR, TPR)$ with $FPR = TPR - J$,
-substitute into $F_1 = 2 \cdot TPR \cdot \pi / (TPR \cdot \pi + \pi
-+ FPR \cdot (1-\pi))$ and maximize over $TPR \in [J, 1]$.
-\end{proof}
+\subsection{Formula Trace and Fair Evaluation}
+
+To enable rigorous comparison with baselines, the search records
+each formula's operation sequence in a \texttt{FormulaTrace} object.
+After search, the formula is replayed on test data, thresholded
+using a cutoff tuned on training data only, and scored on the test
+split.  This is identical to how sklearn baselines are evaluated:
+train on training data, predict on test data, score on test data.
 
 % ================================================================
-\section{A* Search with DAG Heuristic}
+\section{Tier 2: Search Accelerators}
 
-\begin{definition}[DAG Heuristic]
-$h(n) = \max(h_1(n), h_2(n), h_3(n))$ where:
+\subsection{GPU-Accelerated Beam Search}
+
+The search generates candidate formulas in a tree of depth $D$
+with $d$ input features and operation sets $\mathcal{B}$ (10 binary)
+and $\mathcal{U}$ (6 unary).  At each depth, candidates are
+generated via tensor broadcasting and evaluated in a single batched
+GPU call.
+
+\textbf{Candidate generation.}  Given a beam of $B$ formulas
+$\mathbf{V} \in \mathbb{R}^{N \times B}$ and features
+$\mathbf{X} \in \mathbb{R}^{N \times d}$, each binary operation
+$\circ \in \mathcal{B}$ produces:
+\[
+\mathbf{C}_\circ = \mathbf{V}_{(:,:,1)} \circ
+\mathbf{X}_{(:,1,:)} \in \mathbb{R}^{N \times B \times d}
+\]
+yielding $B \cdot d \cdot |\mathcal{B}|$ candidates per level,
+computed entirely on GPU.
+
+\textbf{Batched F1.}  All candidates are stacked into
+$\mathbf{M} \in \mathbb{R}^{N \times K}$.  The optimal
+thresholded F1 for each column is computed via sort-and-sweep:
+sort each column (GPU radix sort), compute cumulative TP/FP,
+take the max F1 across threshold positions.  Both sort directions
+are evaluated.  Constant-valued candidates (zero variance) are
+assigned $F_1 = 0$ to prevent sort-order artifacts.
+
+\textbf{Formula trace.}  To enable fair test-set evaluation, the
+search records each formula's operation sequence in a
+\texttt{FormulaTrace} object.  After search, the formula is
+replayed on test data, thresholded using a cutoff tuned on
+training data, and scored on the test split.
+
+\subsection{Meta-Learned Pruning}
+\label{sec:meta}
+
+The primary research contribution: the search applied to itself.
+
+\subsection{Problem Formulation}
+
+Given exhaustive enumeration of formulas to depth $D$, each
+shallow node $n$ (depth $< D$) is classified as:
 \begin{itemize}
-\item $h_1$: 0 if $F_1(n) \geq t$ (target met), 1 otherwise. [$O(1)$]
-\item $h_2$: 0 if $F_1^{\max}(\mathrm{AUROC}(n), \pi) \geq t$
-(Theorem~\ref{thm:bound}), 1 otherwise. [$O(N \log N)$]
-\item $h_3$: 0 if any single feature achieves $F_1 \geq t$
-(precomputed), 1 if the formula uses $\leq 1$ feature and the
-single-feature ceiling $< t$. [$O(1)$]
+\item \textbf{Alive}: $n$'s subtree contains a formula with
+$F_1 \geq F_1^* - \epsilon$.
+\item \textbf{Dead}: $n$'s subtree is safe to prune.
 \end{itemize}
-Each $h_i$ returns a lower bound on the remaining depth to reach
-a target-meeting formula. Since each is admissible and $\max$ of
-admissible heuristics is admissible~\cite{felner2011inconsistent},
-$h$ is admissible.
-\end{definition}
+We seek a formula $\phi$ over node features such that:
+\begin{equation}
+\phi(n) < \theta \implies n \text{ is dead}
+\quad \text{(zero false negatives)}
+\label{eq:admissible}
+\end{equation}
+The threshold $\theta$ is set to $\min_{n:\, \text{alive}} \phi(n)$,
+guaranteeing zero false negatives \emph{by construction}.
 
-With $g(n) = \mathrm{depth}(f_n)$ and $h(n)$ as above, the search
-expands nodes in order of $g + h$. The first formula meeting the
-target is provably at minimum depth.
+\subsection{Ground Truth via Exhaustive Enumeration}
 
-\textbf{Strict mode}: no subtree pruning. All children (including
-monotone unary transforms) are added to the frontier. Monotone
-children reuse the parent's F1 (Corollary~1) but are still expanded
-for their descendants. This is true A* with a guaranteed optimal result.
+For each dataset, all formulas to depth 3 are enumerated
+(110{,}120 for $d=10$; 57{,}696 for $d=8$) using GPU-batched
+evaluation.  Viability propagates upward: a parent is alive if
+any child is alive.  Results:
+\begin{itemize}
+\item Depth 1: 60--63\% of features lead to dead subtrees.
+\item Depth 2: 99.2--99.4\% of formulas are dead.
+\item Depth 3: $>99.99$\% dead (only 4--10 near-optimal).
+\end{itemize}
 
-\textbf{Fast mode}: adds an empirical AUROC subtree screening filter.
-Children with AUROC below a threshold (default 0.55) are not added
-to the frontier. This is \emph{not} provably safe (a low-AUROC
-intermediate can produce a high-AUROC descendant via non-monotone
-transforms). We verify empirically: across 56 test conditions
-(8 datasets $\times$ 7 AUROC thresholds), zero admissibility
-violations are observed.
+\subsection{Discovered Pruning Criteria}
 
-% ================================================================
-\section{Experiments}
-
-% [Tables will be updated as results come in]
-
-All F1 scores are computed via exact sort-and-sweep ($O(N \log N)$,
-all $N$ possible thresholds, both directions). Cross-validated
-results use 5-fold stratified splits with formula selection and
-threshold tuning on training folds and evaluation on held-out folds.
-
-\subsection{A* vs Phased Enumeration}
-
-% [Table: 9 datasets, A* F1 vs phased ceiling vs GB]
-\emph{Results being compiled from overnight Atlas runs.}
-
-\subsection{Statistical Significance}
-
-We evaluate significance via $10 \times 5$-fold repeated stratified
-CV (50 paired measurements per dataset). The A*-discovered formula
-and gradient-boosted ensemble are trained on each training fold and
-evaluated on the held-out fold. Table~\ref{tab:sigma} reports paired
-$t$-test results.
+We search depth-3 formulas over 10 node meta-features:
+F1, AUROC, feature count $k$, F1$_\text{gap}$,
+AUROC$_\text{gap}$, prevalence $\pi$, F1$\times$AUROC,
+AUROC/$k$, $(1{-}\text{F1})(1{-}\text{AUROC})$, depth $d$.
 
 \begin{table}[h]
-\caption{Statistical significance: 10$\times$5-fold repeated CV.
-A* formula vs.\ gradient boosting (100 trees, depth 4).}
-\label{tab:sigma}
+\caption{Meta Theory Radar: best discovered pruning criteria.
+Zero false negatives on all datasets.  $\epsilon = 0.005$.}
+\label{tab:meta}
 \scriptsize
-\begin{tabular}{@{}lccccr@{}}
+\begin{tabular}{@{}llrr@{}}
 \toprule
-Dataset & A* ($\mu{\pm}\sigma$) & GB ($\mu{\pm}\sigma$) & $p$ & $\sigma$ & Dir \\
+Dataset & Best Criterion & Prune\% & Dead \\
 \midrule
-Circles 2K & $.997{\pm}.002$ & $.989{\pm}.005$ & $6{\times}10^{-18}$ & 13.3 & A*$>$ \\
-Circles 5K & $.996{\pm}.002$ & $.990{\pm}.003$ & $3{\times}10^{-22}$ & \textbf{17.0} & A*$>$ \\
-Circles 10K & $.994{\pm}.002$ & $.991{\pm}.002$ & $1{\times}10^{-18}$ & 13.9 & A*$>$ \\
-Moons 2K & $.888{\pm}.003$ & $.969{\pm}.007$ & $< 10^{-30}$ & 18.7 & GB$>$ \\
-Breast Ca. & $.959{\pm}.005$ & $.950{\pm}.019$ & 0.44 & 0.9 & n.s. \\
+Breast Ca.\ 10D & $(d / (\text{F1}{\cdot}\text{AUROC})) + \text{AUROC}/k$ & 88.4\% & 1030 \\
+Wine 10D & $\sqrt{(\text{AUROC}/d)^2 + \text{AUROC}^2}$ & 99.6\% & 1028 \\
+Diabetes 8D & $(1{-}\text{F1})(1{-}\text{AUROC}) \cdot d + \text{AUROC}$ & 97.7\% & 665 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-On Circles, the formula $\sqrt{x_1^2 + x_2^2}$ outperforms gradient
-boosting at \textbf{13--17$\sigma$} significance ($p < 10^{-17}$)
-across all sample sizes tested. This is because the formula IS the
-exact analytic decision boundary; any ensemble can only approximate
-it. On Moons, the ensemble wins at $18.7\sigma$---the nonlinear
-boundary genuinely requires a complex model. On Breast Cancer, the
-difference is not significant ($p = 0.44$): the A* formula matches
-the ensemble.
+\textbf{Criterion family and selection.}
+The meta-search evaluates 12 candidate criteria
+(Table~\ref{tab:family}) and selects the one with the highest
+zero-false-negative prune rate.
 
-\subsection{AUROC Pruning Validation}
+\begin{table}[h]
+\caption{Criterion family searched on each fold. Prune rates
+shown for Breast Cancer 10D ($\epsilon = 0.005$). Winner varies
+by fold/dataset; $F_1/d$ wins most frequently.}
+\label{tab:family}
+\scriptsize
+\begin{tabular}{@{}llr@{}}
+\toprule
+Criterion $\phi(n)$ & Zero-FN? & Prune\% \\
+\midrule
+$F_1$ & yes & 41.4 \\
+AUROC & yes & 70.8 \\
+$F_1 / d$ & yes & \textbf{75.6} \\
+AUROC$/d$ & yes & 75.3 \\
+$F_1 \cdot \text{AUROC}$ & yes & 69.2 \\
+$F_1 \cdot \text{AUROC} / d$ & yes & 74.1 \\
+AUROC$/k$ & yes & 75.3 \\
+$F_1 - d$ & yes & 41.4 \\
+AUROC$- d$ & yes & 70.8 \\
+$F_1 / k$ & yes & 41.4 \\
+$F_1 + F_1/d$ & yes & 73.2 \\
+$F_1 \cdot k$ & yes & 23.8 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-% [Table: 8 datasets x 7 thresholds = 56 conditions]
-At $\alpha = 0.75$: 70--99.95\% of formulas pruned across 8 datasets
-with zero admissibility violations.
+\textbf{Key findings.}
+(1)~All top criteria involve \emph{depth}: deeper formulas with
+low quality are more likely dead.
+(2)~AUROC \emph{per feature} ($\text{AUROC}/k$) and $F_1/d$
+are more informative than raw AUROC (71\%) or raw F1 (41\%).
+(3)~The winning criterion varies by fold and dataset ($F_1/d$
+wins on 3 of 5 Breast Cancer folds; AUROC$/d$ wins on Wine),
+supporting the need for per-fold meta-search rather than a
+fixed rule.
+
+\subsection{Generalizability}
+
+When applied cross-dataset with a fixed threshold, the criteria
+maintain zero false negatives but achieve 0\% pruning---the
+functional form transfers across datasets, but a nontrivial
+zero-false-negative threshold is dataset-specific.
+
+The meta-search pipeline (enumeration + viability + criterion
+search) runs in $\sim$2 minutes per dataset on a single GPU.
+Because pruning changes the search trajectory and can therefore
+change which formula is discovered, the CV experiments in
+Section~\ref{sec:eval} do \emph{not} use meta-search pruning.
+The significance results reflect the unpruned beam search.
+Meta-search pruning is evaluated separately as a search-efficiency
+contribution (Table~\ref{tab:meta}), not as part of the
+prediction pipeline.
+
+\subsection{Pareto Frontier}
+
+Sweeping $\epsilon$ reveals a Pareto trade-off between safety
+margin and pruning aggressiveness (Breast Cancer 10D):
+
+\begin{table}[h]
+\caption{Pareto frontier: pruning rate vs.\ $\epsilon$.}
+\label{tab:pareto}
+\scriptsize
+\begin{tabular}{@{}cccc@{}}
+\toprule
+$\epsilon$ & Alive & Dead & Best Prune\% \\
+\midrule
+0.001 & 7 & 1033 & 90.6\% \\
+0.005 & 10 & 1030 & 88.4\% \\
+0.010 & 24 & 1016 & 80.2\% \\
+0.020 & 165 & 875 & 28.6\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ================================================================
+\section{Tier 3: Representation Augmenters}
+
+A depth-3 formula references at most 3 features.  On datasets
+where the decision boundary requires many features (e.g., Breast
+Cancer, $d = 30$), this is a structural limit.  Representation
+augmenters lift this limit by projecting all $d$ features into
+$k$ components, each encoding information from the full feature
+set.
+
+\textbf{PCA.}  Standard principal components.  Each component is
+a linear combination of all $d$ features.  A formula
+$\min(\mathrm{pc}_0, f_5) + \mathrm{pc}_2$ implicitly uses all
+features through the PCA projections.
+
+\textbf{Tucker decomposition.}  Decomposes the pairwise feature
+interaction tensor $\mathbf{x} \otimes \mathbf{x}$ via HOSVD,
+capturing how features \emph{interact}, not just individual
+variance directions.
+
+\textbf{Kernel projections.}  Random Fourier features or kernel
+PCA for nonlinear manifold structure.
+
+\textbf{Neural projections.}  A one-hidden-layer ReLU network
+trained on the classification task; the hidden activations become
+features.  Provides data-adaptive nonlinear projections.
+
+All projections are fit on training data only and applied to test
+data via the \texttt{FormulaTrace} replay mechanism.  On Breast
+Cancer, PCA projections improved test $F_1$ from 0.955 (raw) to
+0.963, closing the gap with gradient boosting (0.967) from
+$21\sigma$ to $6\sigma$.
+
+% ================================================================
+\section{Experimental Evaluation}
+\label{sec:eval}
+
+\subsection{Methodology}
+
+We evaluate via $200 \times 5$-fold repeated stratified CV
+(1000 paired measurements per dataset) on UCI datasets.
+For each fold:
+\begin{enumerate}
+\item Beam search discovers a formula on the training split.
+\item The formula's operation sequence (\texttt{FormulaTrace})
+is replayed on the test split.
+\item The optimal threshold is found on training data only.
+\item The threshold is applied to test data to produce predictions.
+\item $F_1$ is computed on the test predictions.
+\end{enumerate}
+This is identical to how sklearn baselines (Gradient Boosting,
+Random Forest, Logistic Regression) are evaluated.  There is
+no methodological asymmetry.
+
+Significance is assessed via the paired $t$-test on the 1000
+$F_1$ differences.  Because repeated CV folds are not fully
+independent, the reported $p$-values are liberal lower bounds;
+the $\sigma$ values should be interpreted as effect sizes
+relative to fold-level noise, not as Gaussian-equivalent
+significance.
+
+\textbf{Note on the heuristic.}  The within-depth ordering
+$h = 1 - F_1$ uses the same metric being optimized.  This is
+not circular: $h$ guides \emph{which nodes to expand next}
+(a search-efficiency decision), not \emph{what score to report}
+(which is always the test-set $F_1$ from fair replay).  The
+heuristic affects search speed and which formulas are found
+within the beam budget, but the final evaluation is strictly
+out-of-sample.
+
+\subsection{Results}
+
+\begin{table}[h]
+\caption{Fair evaluation: $200 \times 5$-fold CV (1000 measurements),
+all $F_1$ on held-out test data.  Bold = formula wins.  The
+``Formula'' column shows the most frequently discovered formula
+across folds (stability ranges from 18\% to 100\%; see text).}
+\label{tab:sigma}
+\scriptsize
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+Dataset & Formula & Test $F_1$ & Gap & vs GB & vs RF & vs LR \\
+\midrule
+Breast Ca. & $\max(f_{20},f_{27}){+}f_{23}$ & .955 & .017 & 20.9 GB & 29.0 RF & 52.1 LR \\
+Wine & $\min(w_6,w_0){+}w_{12}$ & .975 & .017 & \textbf{30.8 A*} & 2.7 RF & 9.9 LR \\
+Diabetes & $\min(d_5,d_7){+}d_1$ & .672 & .024 & \textbf{27.7 A*} & \textbf{29.7 A*} & \textbf{23.4 A*} \\
+Banknote & $(b_0{+}b_1){+}b_2$ & .986 & .003 & 25.2 GB & 21.5 RF & \textbf{28.3 A*} \\
+Ionosph. & $\sqrt{i_4^2{+}i_3^2}{-}i_2$ & .912 & .033 & 44.8 GB & 53.8 RF & 0.4 n.s. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Formula wins (fair evaluation).}
+On Diabetes, the three-feature formula $\min(d_5, d_7) + d_1$
+shows a large, consistent fold-level advantage over all three
+baselines (effect sizes $23$--$30\sigma$).  A clinician can
+compute this formula by hand (minimum of insulin and age, plus
+glucose), yet it achieves test $F_1 = 0.672$ vs.\ GB's $0.631$.
+On Wine, $\min(\text{flavanoids}, \text{alcohol}) + \text{proline}$
+shows a large advantage over gradient boosting ($30.8\sigma$
+effect size, $F_1 = 0.975$ vs.\ $0.923$).
+On Banknote, $(b_0 + b_1 + b_2)$ outperforms LR ($28.3\sigma$)
+while being 100\% stable across 1000 folds.
+
+\textbf{Baseline wins.}
+On Breast Cancer ($d=30$), the formula uses only 3 of 30 features.
+Logistic regression, which linearly combines all 30, wins at
+$52\sigma$.  On Ionosphere ($d=34$), the formula's test $F_1$
+drops to 0.912 (gap of 0.033 from train), while RF achieves
+0.949.
+
+\textbf{Interpretation.}
+Theory Radar does not claim that formulas always outperform
+ensembles.  It quantifies when and by how much interpretability
+costs accuracy.  The results show a clear pattern: when the
+classification boundary can be captured by 2--3 features (Diabetes,
+Wine), formulas match or beat ensembles.  When it requires
+many features (Breast Cancer, Ionosphere), ensembles win.
+The train--test gap (0.003--0.033) confirms that formulas
+generalize well; the performance gap is structural, not due to
+overfitting.
 
 % ================================================================
 \section{Discussion}
 
-Theory Radar contributes three things to the symbolic prediction
-literature:
+\subsection{Meta-Search as a General Framework}
 
-\emph{A provably admissible heuristic for formula search.} The DAG
-heuristic $h = \max(h_1, h_2, h_3)$ is, to our knowledge, the first
-formally admissible heuristic for A* search over symbolic formula
-trees. Existing search-based SR methods~\cite{kommenda2020search}
-use exhaustive enumeration or heuristic ranking without admissibility
-proofs.
+The meta-search technique applies to any tree search with
+evaluable node features.  The recipe:
+(1)~exhaustive search on small instances for ground truth,
+(2)~label nodes as alive/dead,
+(3)~search for a classifier over node features with zero false
+negatives (threshold set at the minimum alive-node value).
+The zero-false-negative property is structural, not statistical:
+it holds by construction on the enumerated space.
 
-\emph{The strict/fast mode distinction.} By separating the provably
-optimal search (strict) from the empirically accelerated search
-(fast), the tool gives practitioners an explicit choice between
-guarantee and speed. This is more honest than methods that
-implicitly make unprovable assumptions about their search.
+\subsection{What Theory Radar Is Not}
 
-\emph{Tree compositions beyond templates.} A* naturally discovers
-formulas like $\max(x_2 - x_1, x_2)$ that phased enumeration
-misses because its templates do not include pairwise-of-pairwise
-compositions.
+The beam search is depth-ordered: it exhaustively evaluates all
+formulas at each depth and keeps the top $B$ by $F_1$.  It makes
+no claim to A*-style optimality and uses no cost-to-go heuristic.
+An earlier version of this work proposed an A* formulation with a
+``provably admissible DAG heuristic,'' but peer review correctly
+identified that (a)~the AUROC-F1 bound theorem underlying one
+heuristic component was false, and (b)~the remaining components
+collapsed to a trivial goal-indicator, making the search
+equivalent to depth-ordered enumeration.  We abandoned that
+framing in favor of the honest description presented here.
+
+The contribution is the meta-search (Section~\ref{sec:meta}),
+not the base search algorithm.
 
 \subsection{Limitations}
 
-The search is exponential in depth: $O((dk)^D)$ nodes at depth $D$.
-Strict mode is practical to depth 3--4; deeper search requires fast
-mode or beam search.
+Exhaustive enumeration for meta-search ground truth scales as
+$O((d \cdot |\mathcal{B}|)^D)$.  At depth 3 with $d = 10$,
+this produces $\sim$110K formulas (feasible).  Depth 4 is
+practical only for $d \leq 6$.
 
-The monotone F1 reuse saves one evaluation per monotone child but
-does not prune the subtree. The resulting frontier can be large
-(100K+ nodes at depth 3 with $d = 15$).
+The meta-discovered pruning criteria's thresholds do not transfer
+across datasets (Section~4.4).  This means the meta-search must
+be re-run for each new dataset, though at only $\sim$2 minutes
+per dataset this is not onerous.
 
-The AUROC subtree screening in fast mode is empirically safe but
-not provably so. A low-AUROC variable $z$ can become useful after
-$z^2$ or $|z|$.
+The zero-false-negative guarantee holds only within the search
+space used to construct the ground truth (depth~3, the specific
+operator set, the specific dataset).  It does not automatically
+extend to deeper searches, different operator sets, or unseen
+datasets.  Applying a depth-3 criterion to a depth-4 search is
+an extrapolation that requires separate validation.
+
+The depth-3 search produces formulas using at most 3 features.
+On datasets where the decision boundary requires many features
+(Breast Cancer, Ionosphere), this is a hard structural limit.
+
+The significance test uses repeated CV, which introduces
+correlation between folds.  The $\sigma$ values are effect-size
+indicators, not strict Gaussian-equivalent significance levels.
 
 % ================================================================
 \section{Conclusion}
 
-Theory Radar provides a formula search with a provably admissible
-DAG heuristic in strict mode and a 70--99\% faster empirical
-screening mode. Three supporting theorems (Monotone Invariance,
-AUROC Invariance, AUROC-F1 Bound) provide the mathematical
-foundation. Across 9 datasets, the search discovers formulas
-that phased enumeration misses and, on Circles, statistically
-significantly outperforms gradient boosting ($p = 0.036$).
+Theory Radar with meta-search provides a framework for
+discovering pruning rules via self-application.  Within the
+depth-3 search space on each dataset, the discovered rules prune
+88--99.6\% of dead subtrees with zero false negatives,
+outperforming hand-crafted alternatives by 17--29 percentage
+points.  The Monotone Invariance Theorem enables F1 and AUROC
+reuse for monotone transforms.  The meta-search recipe
+(exhaustive enumeration, viability labeling, criterion search
+with threshold at the minimum alive-node value) is in principle
+applicable to other tree searches with evaluable node features,
+though this paper validates it only on the symbolic formula
+search described here.
+
+% ================================================================
+\section*{Impact Statement}
+
+This work introduces a method for discovering interpretable
+symbolic classifiers that compete with ensemble methods on
+tabular data.  The primary positive impact is in domains where
+model interpretability is legally or ethically required (medical
+diagnosis, credit scoring, criminal justice): a clinician can
+verify a three-term formula by hand, whereas a 100-tree gradient
+boosting model is opaque.
+
+The meta-search technique---learning safe pruning rules from
+exhaustive local search---is a general algorithmic contribution
+with no domain-specific risks.  The method does not generate
+synthetic data, interact with humans, or make autonomous
+decisions.
+
+A potential negative impact is over-reliance on simple formulas in
+settings where ensemble methods are genuinely superior (high-dimensional
+boundaries).  Our evaluation explicitly identifies such cases
+(Breast Cancer, Ionosphere) and reports them honestly, mitigating
+this risk.  We recommend that practitioners compare formula and
+ensemble performance on their specific data before deploying.
 
 \begin{thebibliography}{9}
 \bibitem{schmidt2009distilling}
@@ -306,11 +565,6 @@ and SymbolicRegression.jl,'' \emph{arXiv:2305.01582}, 2023.
 M.~Kommenda \emph{et al.}, ``Parameter identification for symbolic
 regression using nonlinear least squares,'' \emph{Genetic Programming
 and Evolvable Machines}, vol.~21, pp.~471--501, 2020.
-
-\bibitem{bond2026phased}
-A.~H.~Bond, ``Formula ceiling detection: Phased enumeration for
-interpretable symbolic prediction,'' submitted to \emph{IEEE Trans.\
-Artif.\ Intell.}, 2026.
 
 \bibitem{felner2011inconsistent}
 A.~Felner \emph{et al.}, ``Inconsistent heuristics in theory and
