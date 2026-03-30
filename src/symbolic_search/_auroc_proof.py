@@ -47,7 +47,6 @@ operating point.
 from __future__ import annotations
 
 import numpy as np
-from scipy.optimize import minimize_scalar
 
 
 def f1_at_operating_point(tpr: float, fpr: float, prevalence: float) -> float:
@@ -135,8 +134,8 @@ def prove_admissibility(alpha: float, prevalence: float) -> dict:
         "youden_max": 2 * alpha - 1,
         "proof": (
             f"For AUROC ≤ {alpha:.2f} and prevalence π = {prevalence:.3f}:\n"
-            f"  Maximum Youden index = 2·{alpha:.2f} - 1 = {2*alpha-1:.2f}\n"
-            f"  Best operating point: TPR - FPR ≤ {2*alpha-1:.2f}\n"
+            f"  Maximum Youden index = 2·{alpha:.2f} - 1 = {2 * alpha - 1:.2f}\n"
+            f"  Best operating point: TPR - FPR ≤ {2 * alpha - 1:.2f}\n"
             f"  Maximum achievable F1 ≤ {f1_bound:.4f}\n"
             f"  Therefore: any formula with AUROC < {alpha:.2f} has F1 < {f1_bound:.4f}\n"
             f"  Pruning such formulas is ADMISSIBLE if current best F1 > {f1_bound:.4f}"
@@ -162,6 +161,7 @@ def compute_bounds_table(prevalences=None, alphas=None):
 
 if __name__ == "__main__":
     import logging
+
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     log = logging.getLogger()
 
@@ -222,7 +222,9 @@ if __name__ == "__main__":
             bound = max_f1_for_auroc(alpha, prevalence)
             if bound < best_f1:
                 log.info("\n%s (π=%.2f, best F1=%.3f):", name, prevalence, best_f1)
-                log.info("  Admissible at α=%.2f: F1_bound=%.4f < best=%.3f ✓", alpha, bound, best_f1)
+                log.info(
+                    "  Admissible at α=%.2f: F1_bound=%.4f < best=%.3f ✓", alpha, bound, best_f1
+                )
                 proof = prove_admissibility(alpha, prevalence)
                 log.info("  %s", proof["proof"].replace("\n", "\n  "))
                 break

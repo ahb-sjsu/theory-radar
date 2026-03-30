@@ -166,11 +166,12 @@ class TheoryRadar:
 
         for proj_name in proj_list:
             if proj_name not in PROJECTIONS:
-                raise ValueError(f"Unknown projection: {proj_name}. "
-                                 f"Options: {list(PROJECTIONS.keys())}")
+                raise ValueError(
+                    f"Unknown projection: {proj_name}. Options: {list(PROJECTIONS.keys())}"
+                )
             proj = PROJECTIONS[proj_name](n_components=self.n_projection_components)
 
-            if hasattr(proj, 'set_labels'):
+            if hasattr(proj, "set_labels"):
                 proj.set_labels(self.y.astype(np.float64))
 
             proj_features = proj.fit_transform(self.X)
@@ -178,9 +179,13 @@ class TheoryRadar:
             self._aug_X = np.hstack([self._aug_X, proj_features])
             self._aug_names.extend(proj.names)
 
-        log.info("Projections: %s → %d features (%d raw + %d projected)",
-                 proj_list, len(self._aug_names), self.d,
-                 len(self._aug_names) - self.d)
+        log.info(
+            "Projections: %s → %d features (%d raw + %d projected)",
+            proj_list,
+            len(self._aug_names),
+            self.d,
+            len(self._aug_names) - self.d,
+        )
 
     def transform_test(self, X_test: NDArray) -> NDArray:
         """Apply fitted projections to test data."""
@@ -276,17 +281,26 @@ class TheoryRadar:
 
             if mode == "auto":
                 result = sub_radar._auto(
-                    f1_target, max_depth, max_expansions,
-                    auroc_threshold, timeout, verbose and trial == 0,
+                    f1_target,
+                    max_depth,
+                    max_expansions,
+                    auroc_threshold,
+                    timeout,
+                    verbose and trial == 0,
                 )
             elif mode == "strict":
                 result = sub_radar._search(
-                    f1_target, max_depth, max_expansions,
-                    auroc_prune=None, verbose=verbose and trial == 0,
+                    f1_target,
+                    max_depth,
+                    max_expansions,
+                    auroc_prune=None,
+                    verbose=verbose and trial == 0,
                 )
             elif mode == "fast":
                 result = sub_radar._search(
-                    f1_target, max_depth, max_expansions,
+                    f1_target,
+                    max_depth,
+                    max_expansions,
                     auroc_prune=auroc_threshold,
                     verbose=verbose and trial == 0,
                 )
@@ -297,8 +311,12 @@ class TheoryRadar:
                 best_result = result
 
         if verbose and self.n_subspaces > 1:
-            log.info("Best across %d subspaces: %s F1=%.4f",
-                     self.n_subspaces, best_result.formula[:40], best_result.f1)
+            log.info(
+                "Best across %d subspaces: %s F1=%.4f",
+                self.n_subspaces,
+                best_result.formula[:40],
+                best_result.f1,
+            )
 
         return best_result
 
@@ -342,7 +360,7 @@ class TheoryRadar:
         n_val = max(20, int(0.2 * N))
         val_idx, train_idx = idx[:n_val], idx[n_val:]
         X_tr, y_tr = X[train_idx], y[train_idx]
-        X_val, y_val = X[val_idx], y[val_idx]
+        _X_val, _y_val = X[val_idx], y[val_idx]
 
         configs = [
             # (projection, n_subspaces, subspace_k, max_depth, label)
@@ -371,7 +389,9 @@ class TheoryRadar:
 
             try:
                 radar = TheoryRadar(
-                    X_tr, y_tr, feature_names=feature_names,
+                    X_tr,
+                    y_tr,
+                    feature_names=feature_names,
                     projection=proj,
                     n_projection_components=8,
                     n_subspaces=n_sub,
@@ -379,19 +399,13 @@ class TheoryRadar:
                 )
 
                 result = radar.search(
-                    mode="fast", max_depth=md,
+                    mode="fast",
+                    max_depth=md,
                     max_expansions=10000,
                     verbose=False,
                 )
 
-                # Evaluate on validation set
-                from symbolic_search._heuristic_dag import exact_optimal_f1
-                X_val_aug = radar.transform_test(X_val)
-                # Re-evaluate formula on augmented validation features
-                # (approximate: use train F1 as proxy since we can't
-                # easily replay the formula on different feature indices)
-                val_f1 = result.f1  # TODO: proper val replay
-
+                # TODO: proper validation replay (currently using train F1 as proxy)
                 elapsed = time.time() - t0
                 if verbose:
                     log.info("  autotune [%s] F1=%.4f (%.1fs)", label, result.f1, elapsed)
@@ -408,21 +422,24 @@ class TheoryRadar:
                 continue
 
         if verbose:
-            log.info("  autotune best: [%s] F1=%.4f formula=%s",
-                     best_label, best_val_f1,
-                     best_result.formula[:40] if best_result else "none")
+            log.info(
+                "  autotune best: [%s] F1=%.4f formula=%s",
+                best_label,
+                best_val_f1,
+                best_result.formula[:40] if best_result else "none",
+            )
 
         return best_radar, best_result
 
-    def _auto(self, f1_target, max_depth, max_expansions,
-              auroc_threshold, timeout, verbose):
+    def _auto(self, f1_target, max_depth, max_expansions, auroc_threshold, timeout, verbose):
         """Auto mode: try strict first, fall back to fast."""
         if verbose:
             log.info("Theory Radar AUTO: trying strict A* (%.0fs timeout)...", timeout)
 
         t0 = time.time()
         result = self._search(
-            f1_target, max_depth,
+            f1_target,
+            max_depth,
             max_expansions=min(max_expansions, 10000),  # limit strict budget
             auroc_prune=None,
             verbose=verbose,
@@ -438,7 +455,9 @@ class TheoryRadar:
             log.info("Strict A* timed out, switching to fast mode...")
 
         return self._search(
-            f1_target, max_depth, max_expansions,
+            f1_target,
+            max_depth,
+            max_expansions,
             auroc_prune=auroc_threshold,
             verbose=verbose,
         )
@@ -487,10 +506,18 @@ class TheoryRadar:
             auc = auroc_safe(vals, actual)
             h = dag(f1=f1, auroc=auc, n_features_used=1, values=vals)
 
-            heapq.heappush(frontier, _Node(
-                priority=1 + h, depth=1, formula=features[i],
-                values=vals, f1=f1, auc=auc, n_features=1,
-            ))
+            heapq.heappush(
+                frontier,
+                _Node(
+                    priority=1 + h,
+                    depth=1,
+                    formula=features[i],
+                    values=vals,
+                    f1=f1,
+                    auc=auc,
+                    n_features=1,
+                ),
+            )
 
             if f1 > best_f1:
                 best_f1 = f1
@@ -545,14 +572,20 @@ class TheoryRadar:
                             best_formula = cd
                             best_depth = node.depth + 1
                             if verbose:
-                                log.info("  NEW BEST: %s F1=%.4f d=%d",
-                                         cd[:50], cf, node.depth + 1)
+                                log.info("  NEW BEST: %s F1=%.4f d=%d", cd[:50], cf, node.depth + 1)
 
-                        heapq.heappush(frontier, _Node(
-                            priority=(node.depth + 1) + h,
-                            depth=node.depth + 1, formula=cd,
-                            values=cv, f1=cf, auc=ca, n_features=cnf,
-                        ))
+                        heapq.heappush(
+                            frontier,
+                            _Node(
+                                priority=(node.depth + 1) + h,
+                                depth=node.depth + 1,
+                                formula=cd,
+                                values=cv,
+                                f1=cf,
+                                auc=ca,
+                                n_features=cnf,
+                            ),
+                        )
                     except Exception:
                         pass
 
@@ -584,17 +617,29 @@ class TheoryRadar:
                         best_formula = cd
                         best_depth = node.depth + 1
 
-                    heapq.heappush(frontier, _Node(
-                        priority=(node.depth + 1) + h,
-                        depth=node.depth + 1, formula=cd,
-                        values=cv, f1=cf, auc=ca, n_features=node.n_features,
-                    ))
+                    heapq.heappush(
+                        frontier,
+                        _Node(
+                            priority=(node.depth + 1) + h,
+                            depth=node.depth + 1,
+                            formula=cd,
+                            values=cv,
+                            f1=cf,
+                            auc=ca,
+                            n_features=node.n_features,
+                        ),
+                    )
                 except Exception:
                     pass
 
             if expansions % 2000 == 0 and verbose:
-                log.info("  [%d] best=%.4f d=%d frontier=%d",
-                         expansions, best_f1, best_depth, len(frontier))
+                log.info(
+                    "  [%d] best=%.4f d=%d frontier=%d",
+                    expansions,
+                    best_f1,
+                    best_depth,
+                    len(frontier),
+                )
 
         elapsed = time.time() - t0
 

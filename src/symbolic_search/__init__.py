@@ -27,15 +27,26 @@ Autotune (find best configuration automatically):
 from symbolic_search.radar import TheoryRadar, RadarResult
 from symbolic_search._search import SymbolicSearch, SearchResults
 from symbolic_search._projections import (
-    PCAProjection, PLSProjection, TuckerProjection, KernelProjection,
-    NeuralProjection, SparsePCAProjection, PROJECTIONS,
+    PCAProjection,
+    PLSProjection,
+    TuckerProjection,
+    KernelProjection,
+    NeuralProjection,
+    SparsePCAProjection,
+    PROJECTIONS,
 )
 
 __all__ = [
-    "TheoryRadar", "RadarResult",
-    "SymbolicSearch", "SearchResults",
-    "PCAProjection", "PLSProjection", "TuckerProjection",
-    "KernelProjection", "NeuralProjection", "SparsePCAProjection",
+    "TheoryRadar",
+    "RadarResult",
+    "SymbolicSearch",
+    "SearchResults",
+    "PCAProjection",
+    "PLSProjection",
+    "TuckerProjection",
+    "KernelProjection",
+    "NeuralProjection",
+    "SparsePCAProjection",
     "PROJECTIONS",
 ]
 __version__ = "0.4.0"

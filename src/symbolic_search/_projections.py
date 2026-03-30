@@ -37,6 +37,7 @@ class PCAProjection(Projection):
 
     def fit_transform(self, X: NDArray) -> NDArray:
         from sklearn.decomposition import PCA
+
         k = min(self.n_components, X.shape[1], X.shape[0] - 1)
         self._pca = PCA(n_components=k)
         return self._pca.fit_transform(X)
@@ -59,12 +60,13 @@ class TuckerProjection(Projection):
 
     def fit_transform(self, X: NDArray) -> NDArray:
         from sklearn.decomposition import TruncatedSVD
+
         N, d = X.shape
 
         if d <= 50:
             X_interact = np.zeros((N, d * d), dtype=np.float64)
             for j in range(d):
-                X_interact[:, j * d:(j + 1) * d] = X[:, j:j + 1] * X
+                X_interact[:, j * d : (j + 1) * d] = X[:, j : j + 1] * X
         else:
             rng = np.random.RandomState(42)
             n_proj = min(self.n_components * 20, 500)
@@ -89,7 +91,7 @@ class TuckerProjection(Projection):
         if self._model == "direct":
             X_interact = np.zeros((N, d * d), dtype=np.float64)
             for j in range(d):
-                X_interact[:, j * d:(j + 1) * d] = X[:, j:j + 1] * X
+                X_interact[:, j * d : (j + 1) * d] = X[:, j : j + 1] * X
         else:
             X_interact = np.zeros((N, len(self._pairs)), dtype=np.float64)
             for idx, pair in enumerate(self._pairs):
@@ -106,8 +108,7 @@ class TuckerProjection(Projection):
 class KernelProjection(Projection):
     """Kernel PCA or Random Fourier Features for nonlinear projections."""
 
-    def __init__(self, n_components: int = 8, method: str = "rff",
-                 gamma: float | None = None):
+    def __init__(self, n_components: int = 8, method: str = "rff", gamma: float | None = None):
         self.n_components = n_components
         self.method = method
         self.gamma = gamma
@@ -116,16 +117,17 @@ class KernelProjection(Projection):
     def fit_transform(self, X: NDArray) -> NDArray:
         if self.method == "kpca":
             from sklearn.decomposition import KernelPCA
+
             g = self.gamma or 1.0 / X.shape[1]
             self._model = KernelPCA(
-                n_components=self.n_components, kernel="rbf",
-                gamma=g, random_state=42)
+                n_components=self.n_components, kernel="rbf", gamma=g, random_state=42
+            )
             return self._model.fit_transform(X)
         else:
             from sklearn.kernel_approximation import RBFSampler
+
             g = self.gamma or 1.0 / X.shape[1]
-            self._model = RBFSampler(
-                n_components=self.n_components, gamma=g, random_state=42)
+            self._model = RBFSampler(n_components=self.n_components, gamma=g, random_state=42)
             return self._model.fit_transform(X)
 
     def transform(self, X: NDArray) -> NDArray:
@@ -141,8 +143,7 @@ class NeuralProjection(Projection):
     """Learned nonlinear projection via a small neural network.
     Trains a 1-hidden-layer net, then uses hidden activations as features."""
 
-    def __init__(self, n_components: int = 8, epochs: int = 50,
-                 lr: float = 0.01):
+    def __init__(self, n_components: int = 8, epochs: int = 50, lr: float = 0.01):
         self.n_components = n_components
         self.epochs = epochs
         self.lr = lr
@@ -205,6 +206,7 @@ class PLSProjection(Projection):
 
     def fit_transform(self, X: NDArray) -> NDArray:
         from sklearn.cross_decomposition import PLSRegression
+
         k = min(self.n_components, X.shape[1], X.shape[0] - 1)
         self._pls = PLSRegression(n_components=k)
         self._pls.fit(X, self._y)
@@ -231,6 +233,7 @@ class SparsePCAProjection(Projection):
 
     def fit_transform(self, X: NDArray) -> NDArray:
         from sklearn.decomposition import SparsePCA
+
         k = min(self.n_components, X.shape[1])
         self._spca = SparsePCA(n_components=k, random_state=42, max_iter=20)
         return self._spca.fit_transform(X)

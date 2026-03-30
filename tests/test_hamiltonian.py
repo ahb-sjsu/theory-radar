@@ -5,7 +5,6 @@ import pytest
 
 from tensor_3body.hamiltonian import (
     hamiltonian,
-    gradient,
     hessian,
     hessian_analytical,
     jacobi_masses,
@@ -54,8 +53,7 @@ class TestHamiltonian:
 
     def test_energy_conservation_symmetry(self):
         """H should be invariant under rotation of the full system."""
-        z = np.array([1.0, 0.0, 0.0, 0.5, 0.5, 0.0,
-                       0.1, 0.2, 0.0, -0.1, 0.1, 0.0])
+        z = np.array([1.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.1, 0.2, 0.0, -0.1, 0.1, 0.0])
         H1 = hamiltonian(z)
 
         # Rotate 90 degrees around z-axis
@@ -73,23 +71,20 @@ class TestHamiltonian:
 class TestHessian:
     def test_analytical_matches_numerical(self):
         """Analytical and numerical Hessians should agree."""
-        z = np.array([2.0, 0.0, 0.0, 0.0, 3.0, 0.0,
-                       0.1, -0.1, 0.0, 0.0, 0.05, 0.0])
+        z = np.array([2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.1, -0.1, 0.0, 0.0, 0.05, 0.0])
         H_num = hessian(z)
         H_ana = hessian_analytical(z)
         np.testing.assert_allclose(H_ana, H_num, atol=1e-4, rtol=1e-3)
 
     def test_symmetry(self):
         """Hessian should be symmetric."""
-        z = np.array([1.5, 0.3, 0.0, -0.5, 2.0, 0.1,
-                       0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        z = np.array([1.5, 0.3, 0.0, -0.5, 2.0, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         H = hessian_analytical(z)
         np.testing.assert_allclose(H, H.T, atol=1e-14)
 
     def test_momentum_block_diagonal(self):
         """The pp block should be diagonal (kinetic energy is T = p^2/2mu)."""
-        z = np.array([2.0, 0.0, 0.0, 0.0, 3.0, 0.0,
-                       0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        z = np.array([2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         H = hessian_analytical(z)
         pp_block = H[6:12, 6:12]
         # Off-diagonal should be zero (pi1 doesn't couple to pi2)
@@ -98,8 +93,7 @@ class TestHessian:
 
     def test_qp_cross_terms_zero(self):
         """Position-momentum cross terms should be zero (H = T(p) + V(q))."""
-        z = np.array([2.0, 0.0, 0.0, 0.0, 3.0, 0.0,
-                       0.1, 0.0, 0.0, 0.0, 0.05, 0.0])
+        z = np.array([2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.05, 0.0])
         H = hessian_analytical(z)
         qp_block = H[0:6, 6:12]
         np.testing.assert_allclose(qp_block, 0.0, atol=1e-14)
@@ -109,8 +103,8 @@ class TestTwoBodyDecomposition:
     def test_distant_third_body_decouples(self):
         """When third body is very far, coupling should be near-zero."""
         z = np.zeros(12)
-        z[0] = 1.0    # inner pair at unit separation
-        z[3] = 1e6    # third body extremely far away
+        z[0] = 1.0  # inner pair at unit separation
+        z[3] = 1e6  # third body extremely far away
         H = hessian_analytical(z, m1=1.0, m2=1.0, m3=1.0)
 
         # Cross-body position coupling should be tiny

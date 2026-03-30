@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 # Theorem 1: Monotone Transform Invariance
 # ============================================================
 
+
 def verify_monotone_invariance(
     values: NDArray,
     actual: NDArray,
@@ -83,6 +84,7 @@ def verify_monotone_invariance(
 # ============================================================
 # Theorem 2: Pairwise F1 Upper Bound via KNN
 # ============================================================
+
 
 def pairwise_f1_upper_bound(
     f_i: NDArray,
@@ -142,6 +144,7 @@ def compute_pruning_bounds(
 # ============================================================
 # Theorem 3: Conditional Irrelevance Pruning
 # ============================================================
+
 
 def conditional_mutual_information(
     f: NDArray,
@@ -213,6 +216,7 @@ def find_irrelevant_features(
 # A* Search with Admissible Heuristic
 # ============================================================
 
+
 def astar_with_pruning(
     X: NDArray,
     y: NDArray,
@@ -232,7 +236,7 @@ def astar_with_pruning(
     formulas pruned.
     """
     from symbolic_search._search import _f1_threshold_sweep
-    from symbolic_search._ops import BINARY_OPS_MINIMAL, UNARY_OPS_MINIMAL
+    from symbolic_search._ops import BINARY_OPS_MINIMAL
 
     if binary_ops is None:
         binary_ops = BINARY_OPS_MINIMAL
@@ -269,8 +273,12 @@ def astar_with_pruning(
     n_total_pairs = d * (d - 1) // 2
 
     if verbose:
-        log.info("  Prunable pairs: %d/%d (%.1f%%)",
-                 n_prunable, n_total_pairs, 100 * n_prunable / max(n_total_pairs, 1))
+        log.info(
+            "  Prunable pairs: %d/%d (%.1f%%)",
+            n_prunable,
+            n_total_pairs,
+            100 * n_prunable / max(n_total_pairs, 1),
+        )
 
     # Step 2b: Evaluate only non-pruned pairs
     for i in range(d):
@@ -318,8 +326,11 @@ def astar_with_pruning(
 
     if verbose:
         log.info("\nA* RESULT: %s (F1=%.3f)", best_formula, best_f1)
-        log.info("  Evaluated: %d, Pruned: %d (%.1f%% reduction)",
-                 formulas_evaluated, formulas_pruned,
-                 100 * result["pruning_rate"])
+        log.info(
+            "  Evaluated: %d, Pruned: %d (%.1f%% reduction)",
+            formulas_evaluated,
+            formulas_pruned,
+            100 * result["pruning_rate"],
+        )
 
     return result

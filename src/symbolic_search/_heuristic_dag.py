@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import heapq
 import logging
-import time
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -88,6 +87,7 @@ def max_f1_for_auroc(auroc: float, prevalence: float) -> float:
 # Individual Admissible Heuristics
 # ============================================================
 
+
 class H1_TargetCheck:
     """h₁: 0 if current F1 ≥ target, 1 otherwise. O(1)."""
 
@@ -120,10 +120,7 @@ class H3_FeatureCoverage:
         self.target = target
         # Precompute: best single-feature F1
         actual = y.astype(bool)
-        self.best_single = max(
-            exact_optimal_f1(X[:, i], actual)
-            for i in range(X.shape[1])
-        )
+        self.best_single = max(exact_optimal_f1(X[:, i], actual) for i in range(X.shape[1]))
         self.name = "H3_coverage"
 
     def __call__(self, f1: float, n_features_used: int = 1, **kwargs) -> int:
@@ -136,8 +133,9 @@ class H4_Lookahead:
     """h₄: Try all 1-step extensions. 0 if any meets target, else 2.
     Expensive but very tight. O(d·k·N log N)."""
 
-    def __init__(self, X: NDArray, y: NDArray, target: float,
-                 binary_ops: dict, max_evals: int = 50):
+    def __init__(
+        self, X: NDArray, y: NDArray, target: float, binary_ops: dict, max_evals: int = 50
+    ):
         self.X = X
         self.actual = y.astype(bool)
         self.target = target
@@ -173,6 +171,7 @@ class H4_Lookahead:
 # ============================================================
 # The Heuristic DAG
 # ============================================================
+
 
 class HeuristicDAG:
     """Combines multiple admissible heuristics via max().
@@ -219,6 +218,7 @@ class HeuristicDAG:
 # ============================================================
 # A* with DAG Heuristic
 # ============================================================
+
 
 @dataclass(order=True)
 class AStarNode:
@@ -297,8 +297,7 @@ def astar_dag(
             best_depth = 1
 
     if verbose:
-        log.info("DAG-A* init: %d features, best F1=%.4f, target=%.3f",
-                 d, best_f1, f1_target)
+        log.info("DAG-A* init: %d features, best F1=%.4f, target=%.3f", d, best_f1, f1_target)
 
     # Main loop
     while frontier and expansions < max_expansions:
@@ -309,8 +308,11 @@ def astar_dag(
         # we have found the optimal (shallowest) formula
         if best_f1 >= f1_target and node.depth > best_depth:
             if verbose:
-                log.info("DAG-A* OPTIMAL: target met at depth %d after %d expansions",
-                         best_depth, expansions)
+                log.info(
+                    "DAG-A* OPTIMAL: target met at depth %d after %d expansions",
+                    best_depth,
+                    expansions,
+                )
             break
 
         if node.depth >= max_depth:
@@ -337,8 +339,9 @@ def astar_dag(
                     child_depth = node.depth + 1
                     child_nf = node.n_features + (1 if feature_names[j] not in node.formula else 0)
 
-                    h = dag(f1=child_f1, auroc=child_auc,
-                            n_features_used=child_nf, values=child_vals)
+                    h = dag(
+                        f1=child_f1, auroc=child_auc, n_features_used=child_nf, values=child_vals
+                    )
                     g = child_depth
 
                     if child_f1 > best_f1:
@@ -346,18 +349,25 @@ def astar_dag(
                         best_formula = child_desc
                         best_depth = child_depth
                         if verbose:
-                            log.info("  NEW BEST: %s F1=%.4f depth=%d",
-                                     child_desc[:50], child_f1, child_depth)
+                            log.info(
+                                "  NEW BEST: %s F1=%.4f depth=%d",
+                                child_desc[:50],
+                                child_f1,
+                                child_depth,
+                            )
 
-                    heapq.heappush(frontier, AStarNode(
-                        priority=g + h,
-                        depth=child_depth,
-                        formula=child_desc,
-                        values=child_vals,
-                        f1=child_f1,
-                        auroc=child_auc,
-                        n_features=child_nf,
-                    ))
+                    heapq.heappush(
+                        frontier,
+                        AStarNode(
+                            priority=g + h,
+                            depth=child_depth,
+                            formula=child_desc,
+                            values=child_vals,
+                            f1=child_f1,
+                            auroc=child_auc,
+                            n_features=child_nf,
+                        ),
+                    )
                 except Exception:
                     pass
 
@@ -382,8 +392,9 @@ def astar_dag(
 
                 child_depth = node.depth + 1
 
-                h = dag(f1=child_f1, auroc=child_auc,
-                        n_features_used=node.n_features, values=child_vals)
+                h = dag(
+                    f1=child_f1, auroc=child_auc, n_features_used=node.n_features, values=child_vals
+                )
                 g = child_depth
 
                 if child_f1 > best_f1:
@@ -391,21 +402,29 @@ def astar_dag(
                     best_formula = child_desc
                     best_depth = child_depth
 
-                heapq.heappush(frontier, AStarNode(
-                    priority=g + h,
-                    depth=child_depth,
-                    formula=child_desc,
-                    values=child_vals,
-                    f1=child_f1,
-                    auroc=child_auc,
-                    n_features=node.n_features,
-                ))
+                heapq.heappush(
+                    frontier,
+                    AStarNode(
+                        priority=g + h,
+                        depth=child_depth,
+                        formula=child_desc,
+                        values=child_vals,
+                        f1=child_f1,
+                        auroc=child_auc,
+                        n_features=node.n_features,
+                    ),
+                )
             except Exception:
                 pass
 
         if expansions % 2000 == 0 and verbose:
-            log.info("  [%d exp] best=%.4f depth=%d frontier=%d",
-                     expansions, best_f1, best_depth, len(frontier))
+            log.info(
+                "  [%d exp] best=%.4f depth=%d frontier=%d",
+                expansions,
+                best_f1,
+                best_depth,
+                len(frontier),
+            )
 
     elapsed_heuristic = dag.summary()
     if verbose:

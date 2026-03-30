@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 # 1. Dynamic Feature Pruning
 # ============================================================
 
+
 def identify_dead_features(
     X: NDArray,
     y: NDArray,
@@ -78,6 +79,7 @@ def prune_features(
 # 2. Semantic Hashing
 # ============================================================
 
+
 class SemanticHasher:
     """Detect algebraically equivalent formulas using output hashing.
 
@@ -121,6 +123,7 @@ class SemanticHasher:
 # ============================================================
 # 3. Beam Search with Diversity
 # ============================================================
+
 
 def diversity_penalty(
     candidate_values: NDArray,
@@ -177,20 +180,26 @@ def beam_search_diverse(
     for i in range(d):
         vals = X[:, i]
         f1, thresh, direction = _f1_threshold_sweep(vals, actual)
-        beam.append({
-            "formula": feature_names[i],
-            "values": vals,
-            "f1": f1,
-            "depth": 1,
-        })
+        beam.append(
+            {
+                "formula": feature_names[i],
+                "values": vals,
+                "f1": f1,
+                "depth": 1,
+            }
+        )
         hasher.is_duplicate(vals)  # register hash
 
     beam.sort(key=lambda x: -x["f1"])
     beam = beam[:beam_width]
 
     best_overall = max(beam, key=lambda x: x["f1"])
-    log.info("Beam depth 1: %d formulas, best F1=%.4f (%s)",
-             len(beam), best_overall["f1"], best_overall["formula"])
+    log.info(
+        "Beam depth 1: %d formulas, best F1=%.4f (%s)",
+        len(beam),
+        best_overall["f1"],
+        best_overall["formula"],
+    )
 
     # Expand beam depth by depth
     for depth in range(2, max_depth + 1):
@@ -214,7 +223,7 @@ def beam_search_diverse(
                         try:
                             auc = roc_auc_score(actual, vals)
                             auc = max(auc, 1 - auc)
-                        except:
+                        except Exception:
                             continue
                         if auc < auroc_threshold:
                             continue
@@ -226,13 +235,15 @@ def beam_search_diverse(
                         div = diversity_penalty(vals, beam_values)
                         score = f1 - diversity_weight * div
 
-                        candidates.append({
-                            "formula": f"({parent['formula']} {op_name} {feature_names[j]})",
-                            "values": vals,
-                            "f1": f1,
-                            "score": score,
-                            "depth": depth,
-                        })
+                        candidates.append(
+                            {
+                                "formula": f"({parent['formula']} {op_name} {feature_names[j]})",
+                                "values": vals,
+                                "f1": f1,
+                                "score": score,
+                                "depth": depth,
+                            }
+                        )
                     except Exception:
                         pass
 
@@ -251,13 +262,15 @@ def beam_search_diverse(
                     div = diversity_penalty(vals, beam_values)
                     score = f1 - diversity_weight * div
 
-                    candidates.append({
-                        "formula": f"{uname}({parent['formula']})",
-                        "values": vals,
-                        "f1": f1,
-                        "score": score,
-                        "depth": depth,
-                    })
+                    candidates.append(
+                        {
+                            "formula": f"{uname}({parent['formula']})",
+                            "values": vals,
+                            "f1": f1,
+                            "score": score,
+                            "depth": depth,
+                        }
+                    )
                 except Exception:
                     pass
 
@@ -272,15 +285,21 @@ def beam_search_diverse(
         if best_at_depth["f1"] > best_overall["f1"]:
             best_overall = best_at_depth
 
-        log.info("Beam depth %d: %d candidates, kept %d, best F1=%.4f (%s), "
-                 "dedup=%d",
-                 depth, len(candidates), len(beam),
-                 best_at_depth["f1"], best_at_depth["formula"][:40],
-                 hasher.n_duplicates)
+        log.info(
+            "Beam depth %d: %d candidates, kept %d, best F1=%.4f (%s), dedup=%d",
+            depth,
+            len(candidates),
+            len(beam),
+            best_at_depth["f1"],
+            best_at_depth["formula"][:40],
+            hasher.n_duplicates,
+        )
 
-    return [{
-        "best_formula": best_overall["formula"],
-        "best_f1": best_overall["f1"],
-        "best_depth": best_overall["depth"],
-        "total_dedup": hasher.n_duplicates,
-    }]
+    return [
+        {
+            "best_formula": best_overall["formula"],
+            "best_f1": best_overall["f1"],
+            "best_depth": best_overall["depth"],
+            "total_dedup": hasher.n_duplicates,
+        }
+    ]
