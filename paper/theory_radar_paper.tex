@@ -210,11 +210,10 @@ $F_1 \geq F_1^* - \epsilon$.
 \item \textbf{Dead}: $n$'s subtree is safe to prune.
 \end{itemize}
 We seek a formula $\phi$ over node features such that:
-\begin{equation}
+\[
 \phi(n) < \theta \implies n \text{ is dead}
 \quad \text{(zero false negatives)}
-\label{eq:admissible}
-\end{equation}
+\]
 The threshold $\theta$ is set to $\min_{n:\, \text{alive}} \phi(n)$,
 guaranteeing zero false negatives \emph{by construction}.
 

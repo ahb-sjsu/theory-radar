@@ -453,7 +453,8 @@ def simplify(node: ExprNode) -> ExprNode:
 
         # x * 0 = 0
         if node.op == "*" and (
-            (r.kind == "const" and r.const_value == 0) or (lft.kind == "const" and lft.const_value == 0)
+            (r.kind == "const" and r.const_value == 0)
+            or (lft.kind == "const" and lft.const_value == 0)
         ):
             return const(0.0)
 
