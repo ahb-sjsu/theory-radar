@@ -216,7 +216,7 @@ and our meta-learned pruning discovers safe subtree elimination rules
 that their framework does not address.
 
 \textbf{Positioning.}
-Theory Radar occupies a distinct niche in this landscape: it is the
+Theory Radar occupies a distinct niche in this landscape: it is
 a system that performs bounded symbolic search
 with direct $F_1$ optimization, fair cross-validated comparison
 against ensemble baselines, and honest reporting of both wins and
@@ -669,8 +669,9 @@ wins or ties.}
 \end{figure}
 
 \textbf{PLS projections are the key enabler.}
-All nine formula wins use PLS-projected features (or raw features
-on datasets with $d \leq 4$ where PLS reduces to a nearly transparent weighted sum).
+All nine formula wins use PLS-projected features, including
+low-dimensional datasets ($d \leq 4$) where the projection is
+nearly transparent.
 Without PLS, Breast Cancer ($d = 30$) is a clear loss; with PLS,
 the formula outperforms GB by $\Delta F_1 = +0.006$, 95\% CI
 $[+0.004, +0.007]$.  PLS finds discriminative directions that
