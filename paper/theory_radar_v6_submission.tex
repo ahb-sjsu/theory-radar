@@ -456,16 +456,14 @@ $\log(|x| + 10^{-30})$; $\sqrt{|x|}$; $\sigma$ and $\tanh$ inputs
 clipped to $[-500, 500]$.
 
 \textbf{Numerical safety.}
-\texttt{nan\_to\_num}$(nan{=}0,\; posinf{=}10^{10},\;
-neginf{=}{-}10^{10})$.
+NaN replaced with~0; overflow clipped to $\pm 10^{10}$.
 
 \textbf{Constant detection.}
-Candidates with standard deviation $< 10^{-12}$ are assigned
-$F_1 = 0$.
+Candidates with std $< 10^{-12}$ get $F_1 = 0$.
 
 \textbf{PLS configuration.}
-\texttt{sklearn.cross\_decomposition.PLSRegression} with
-$n_{\mathrm{components}} = \min(8,\; d{-}1,\; N_{\mathrm{train}}{-}1)$.
+Scikit-learn PLSRegression,
+$k = \min(8, d{-}1, N_{\mathrm{train}}{-}1)$.
 
 \textbf{Search parameters.}
 Beam width $B = 100$; depth $D = 3$; 15 random subspaces of size
