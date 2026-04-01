@@ -16,6 +16,7 @@ Fair test evaluation via FormulaTrace.
 """
 
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import cupy as cp
@@ -39,12 +40,14 @@ log = logging.getLogger()
 
 # ─── GPU Ops ───────────────────────────────────────────────────────
 
+
 def gpu_batch_f1(vals, labels):
     N, K = vals.shape
     pos = labels.sum()
     if float(pos) == 0 or float(pos) == N:
         return cp.zeros(K, dtype=cp.float64)
     return cp.maximum(_sweep(vals, labels, pos), _sweep(-vals, labels, pos))
+
 
 def _sweep(vals, labels, pos):
     N, K = vals.shape
@@ -59,83 +62,107 @@ def _sweep(vals, labels, pos):
     valid[:-1, :] = (sv[:-1, :] - sv[1:, :]) > 1e-15
     return cp.max(cp.where(valid, f1, 0.0), axis=0)
 
+
 BINARY_OPS_LIST = [
-    ("+", lambda a,b: a+b), ("-", lambda a,b: a-b),
-    ("*", lambda a,b: a*b), ("/", lambda a,b: a/(b+1e-30)),
-    ("max", lambda a,b: cp.maximum(a,b)), ("min", lambda a,b: cp.minimum(a,b)),
-    ("hypot", lambda a,b: cp.sqrt(a**2+b**2)),
-    ("diff_sq", lambda a,b: (a-b)**2),
-    ("harmonic", lambda a,b: 2*a*b/(a+b+1e-30)),
-    ("geometric", lambda a,b: cp.sign(a*b)*cp.sqrt(cp.abs(a*b))),
+    ("+", lambda a, b: a + b),
+    ("-", lambda a, b: a - b),
+    ("*", lambda a, b: a * b),
+    ("/", lambda a, b: a / (b + 1e-30)),
+    ("max", lambda a, b: cp.maximum(a, b)),
+    ("min", lambda a, b: cp.minimum(a, b)),
+    ("hypot", lambda a, b: cp.sqrt(a**2 + b**2)),
+    ("diff_sq", lambda a, b: (a - b) ** 2),
+    ("harmonic", lambda a, b: 2 * a * b / (a + b + 1e-30)),
+    ("geometric", lambda a, b: cp.sign(a * b) * cp.sqrt(cp.abs(a * b))),
 ]
 UNARY_OPS_LIST = [
-    ("log", lambda x: cp.log(cp.abs(x)+1e-30)),
+    ("log", lambda x: cp.log(cp.abs(x) + 1e-30)),
     ("sqrt", lambda x: cp.sqrt(cp.abs(x))),
-    ("sq", lambda x: x**2), ("abs", lambda x: cp.abs(x)),
-    ("sigmoid", lambda x: 1.0/(1.0+cp.exp(-cp.clip(x,-500,500)))),
-    ("tanh", lambda x: cp.tanh(cp.clip(x,-500,500))),
+    ("sq", lambda x: x**2),
+    ("abs", lambda x: cp.abs(x)),
+    ("sigmoid", lambda x: 1.0 / (1.0 + cp.exp(-cp.clip(x, -500, 500)))),
+    ("tanh", lambda x: cp.tanh(cp.clip(x, -500, 500))),
 ]
 SCALAR_BIN = {
-    "+": lambda a,b: a+b, "-": lambda a,b: a-b,
-    "*": lambda a,b: a*b, "/": lambda a,b: a/(b+1e-30),
-    "max": lambda a,b: np.maximum(a,b), "min": lambda a,b: np.minimum(a,b),
-    "hypot": lambda a,b: np.sqrt(a**2+b**2), "diff_sq": lambda a,b: (a-b)**2,
-    "harmonic": lambda a,b: 2*a*b/(a+b+1e-30),
-    "geometric": lambda a,b: np.sign(a*b)*np.sqrt(np.abs(a*b)),
+    "+": lambda a, b: a + b,
+    "-": lambda a, b: a - b,
+    "*": lambda a, b: a * b,
+    "/": lambda a, b: a / (b + 1e-30),
+    "max": lambda a, b: np.maximum(a, b),
+    "min": lambda a, b: np.minimum(a, b),
+    "hypot": lambda a, b: np.sqrt(a**2 + b**2),
+    "diff_sq": lambda a, b: (a - b) ** 2,
+    "harmonic": lambda a, b: 2 * a * b / (a + b + 1e-30),
+    "geometric": lambda a, b: np.sign(a * b) * np.sqrt(np.abs(a * b)),
 }
 SCALAR_UN = {
-    "log": lambda x: np.log(np.abs(x)+1e-30),
+    "log": lambda x: np.log(np.abs(x) + 1e-30),
     "sqrt": lambda x: np.sqrt(np.abs(x)),
-    "sq": lambda x: x**2, "abs": lambda x: np.abs(x),
-    "sigmoid": lambda x: 1.0/(1.0+np.exp(-np.clip(x,-500,500))),
-    "tanh": lambda x: np.tanh(np.clip(x,-500,500)),
+    "sq": lambda x: x**2,
+    "abs": lambda x: np.abs(x),
+    "sigmoid": lambda x: 1.0 / (1.0 + np.exp(-np.clip(x, -500, 500))),
+    "tanh": lambda x: np.tanh(np.clip(x, -500, 500)),
 }
 
 
 class FormulaTrace:
     """Records operations for replay on test data."""
+
     def __init__(self, feat_idx):
         self.ops = [("leaf", feat_idx)]
+
     def binary(self, op, fi):
         t = FormulaTrace.__new__(FormulaTrace)
         t.ops = self.ops + [("binary", op, fi)]
         return t
+
     def unary(self, op):
         t = FormulaTrace.__new__(FormulaTrace)
         t.ops = self.ops + [("unary", op)]
         return t
+
     def evaluate(self, X):
         v = None
         for s in self.ops:
-            if s[0] == "leaf": v = X[:, s[1]].copy()
+            if s[0] == "leaf":
+                v = X[:, s[1]].copy()
             elif s[0] == "binary":
                 v = SCALAR_BIN[s[1]](v, X[:, s[2]])
-                v = np.nan_to_num(v, nan=0., posinf=1e10, neginf=-1e10)
+                v = np.nan_to_num(v, nan=0.0, posinf=1e10, neginf=-1e10)
             elif s[0] == "unary":
                 v = SCALAR_UN[s[1]](v)
-                v = np.nan_to_num(v, nan=0., posinf=1e10, neginf=-1e10)
+                v = np.nan_to_num(v, nan=0.0, posinf=1e10, neginf=-1e10)
         return v
 
 
 def find_optimal_threshold(vals, y):
-    best_f1, best_t, best_d = 0., 0., 1
-    P = int(y.astype(bool).sum()); N = len(y)
-    if P == 0 or P == N: return 0., 1, 0.
+    best_f1, best_t, best_d = 0.0, 0.0, 1
+    P = int(y.astype(bool).sum())
+    N = len(y)
+    if P == 0 or P == N:
+        return 0.0, 1, 0.0
     for d in [1, -1]:
-        o = np.argsort(d*vals)[::-1]; sv = (d*vals)[o]; sa = y.astype(bool)[o]
+        o = np.argsort(d * vals)[::-1]
+        sv = (d * vals)[o]
+        sa = y.astype(bool)[o]
         tp = fp = 0
         for i in range(N):
-            if sa[i]: tp += 1
-            else: fp += 1
-            if tp+fp > 0:
-                p = tp/(tp+fp); r = tp/P
-                if p+r > 0:
-                    f = 2*p*r/(p+r)
-                    if f > best_f1: best_f1, best_t, best_d = f, sv[i], d
+            if sa[i]:
+                tp += 1
+            else:
+                fp += 1
+            if tp + fp > 0:
+                p = tp / (tp + fp)
+                r = tp / P
+                if p + r > 0:
+                    f = 2 * p * r / (p + r)
+                    if f > best_f1:
+                        best_f1, best_t, best_d = f, sv[i], d
     return best_t, best_d, best_f1
 
 
 # ─── Meta-Search (lightweight, d=6) ───────────────────────────────
+
 
 def quick_meta_search(X_tr, y_tr, feat_names):
     """Fast meta-search on top-6 features. Returns (criterion_fn, threshold)."""
@@ -165,8 +192,9 @@ def quick_meta_search(X_tr, y_tr, feat_names):
     aurocs_d1 = cp.zeros(d_sub, dtype=cp.float64)
     # skip auroc for speed in meta-search
     for i in range(d_sub):
-        catalog.append({"f1": float(f1s[i]), "auroc": 0.5, "depth": 1,
-                        "nf": 1, "vals": X_sub[:, i].copy()})
+        catalog.append(
+            {"f1": float(f1s[i]), "auroc": 0.5, "depth": 1, "nf": 1, "vals": X_sub[:, i].copy()}
+        )
 
     prev_idx = list(range(len(catalog)))
 
@@ -185,7 +213,7 @@ def quick_meta_search(X_tr, y_tr, feat_names):
             for opname, opfn in BINARY_OPS_LIST:
                 try:
                     out = opfn(pv3, X_sub)  # (N, d_sub)
-                    out = cp.nan_to_num(out, nan=0., posinf=1e10, neginf=-1e10)
+                    out = cp.nan_to_num(out, nan=0.0, posinf=1e10, neginf=-1e10)
                     for j in range(d_sub):
                         col = out[:, j]
                         if float(cp.var(col)) < 1e-20:
@@ -200,7 +228,7 @@ def quick_meta_search(X_tr, y_tr, feat_names):
             for opname, opfn in UNARY_OPS_LIST:
                 try:
                     col = opfn(pv)
-                    col = cp.nan_to_num(col, nan=0., posinf=1e10, neginf=-1e10)
+                    col = cp.nan_to_num(col, nan=0.0, posinf=1e10, neginf=-1e10)
                     if float(cp.var(col)) < 1e-20:
                         continue
                     new_vals_list.append(col)
@@ -218,10 +246,15 @@ def quick_meta_search(X_tr, y_tr, feat_names):
 
         for i in range(len(new_vals_list)):
             idx = len(catalog)
-            catalog.append({
-                "f1": float(f1s[i]), "auroc": 0.5, "depth": new_meta_list[i]["depth"],
-                "nf": new_meta_list[i]["nf"], "vals": new_vals_list[i],
-            })
+            catalog.append(
+                {
+                    "f1": float(f1s[i]),
+                    "auroc": 0.5,
+                    "depth": new_meta_list[i]["depth"],
+                    "nf": new_meta_list[i]["nf"],
+                    "vals": new_vals_list[i],
+                }
+            )
             children_of[new_parent_list[i]].append(idx)
 
         prev_idx = list(range(new_idx_start, len(catalog)))
@@ -255,18 +288,18 @@ def quick_meta_search(X_tr, y_tr, feat_names):
     dead = [(i, c) for i, c in shallow if c["alive"] == 0]
 
     if not alive or not dead:
-        return None, 0., "none", 0.
+        return None, 0.0, "none", 0.0
 
     CRITERIA = [
-        ("f1",             lambda c: c["f1"]),
-        ("f1/depth",       lambda c: c["f1"] / max(c["depth"], 1)),
-        ("f1-depth",       lambda c: c["f1"] - c["depth"]),
-        ("f1*nf",          lambda c: c["f1"] * c["nf"]),
-        ("f1/nf",          lambda c: c["f1"] / max(c["nf"], 1)),
-        ("f1+f1/depth",    lambda c: c["f1"] + c["f1"] / max(c["depth"], 1)),
+        ("f1", lambda c: c["f1"]),
+        ("f1/depth", lambda c: c["f1"] / max(c["depth"], 1)),
+        ("f1-depth", lambda c: c["f1"] - c["depth"]),
+        ("f1*nf", lambda c: c["f1"] * c["nf"]),
+        ("f1/nf", lambda c: c["f1"] / max(c["nf"], 1)),
+        ("f1+f1/depth", lambda c: c["f1"] + c["f1"] / max(c["depth"], 1)),
     ]
 
-    best_name, best_fn, best_thresh, best_rate = "none", None, 0., 0.
+    best_name, best_fn, best_thresh, best_rate = "none", None, 0.0, 0.0
 
     for cname, cfn in CRITERIA:
         a_vals = [cfn(c) for _, c in alive]
@@ -282,11 +315,11 @@ def quick_meta_search(X_tr, y_tr, feat_names):
 
     # Convert to a function of (f1, auroc, depth, nf)
     crit_lookup = {
-        "f1":          lambda f, a, d, k: f,
-        "f1/depth":    lambda f, a, d, k: f / max(d, 1),
-        "f1-depth":    lambda f, a, d, k: f - d,
-        "f1*nf":       lambda f, a, d, k: f * k,
-        "f1/nf":       lambda f, a, d, k: f / max(k, 1),
+        "f1": lambda f, a, d, k: f,
+        "f1/depth": lambda f, a, d, k: f / max(d, 1),
+        "f1-depth": lambda f, a, d, k: f - d,
+        "f1*nf": lambda f, a, d, k: f * k,
+        "f1/nf": lambda f, a, d, k: f / max(k, 1),
         "f1+f1/depth": lambda f, a, d, k: f + f / max(d, 1),
     }
 
@@ -295,10 +328,18 @@ def quick_meta_search(X_tr, y_tr, feat_names):
 
 # ─── Batched Beam Search Across Folds ─────────────────────────────
 
-def batched_beam_search(X_gpu_full, y_gpu_full, feat_names,
-                         fold_groups, crit_cache,
-                         max_depth=4, beam_width=50,
-                         n_subspaces=10, subspace_k=8):
+
+def batched_beam_search(
+    X_gpu_full,
+    y_gpu_full,
+    feat_names,
+    fold_groups,
+    crit_cache,
+    max_depth=4,
+    beam_width=50,
+    n_subspaces=10,
+    subspace_k=8,
+):
     """Process multiple folds in a single GPU batch.
 
     fold_groups: list of (fold_i, tr_indices, te_indices)
@@ -333,14 +374,15 @@ def batched_beam_search(X_gpu_full, y_gpu_full, feat_names,
                 f1_val = float(f1s[li])
 
                 # Meta prune
-                crit_fn, crit_thresh = crit_cache.get(fold_i, (None, 0.))
+                crit_fn, crit_thresh = crit_cache.get(fold_i, (None, 0.0))
                 if crit_fn is not None and crit_fn(f1_val, 0.5, 1, 1) < crit_thresh:
                     continue
 
                 h = 0.0 if f1_val >= 0.99 else 1.0 - f1_val
                 priority = 1.0 + h
-                beam.append((priority, f1_val, local_names[li],
-                            X_tr[:, li].copy(), FormulaTrace(gi), 1))
+                beam.append(
+                    (priority, f1_val, local_names[li], X_tr[:, li].copy(), FormulaTrace(gi), 1)
+                )
 
                 if results[fi] is None or f1_val > results[fi][0]:
                     results[fi] = (f1_val, local_names[li], FormulaTrace(gi))
@@ -372,29 +414,38 @@ def batched_beam_search(X_gpu_full, y_gpu_full, feat_names,
                 for opname, opfn in BINARY_OPS_LIST:
                     try:
                         out = opfn(bv3, fv3)
-                        out = cp.nan_to_num(out, nan=0., posinf=1e10, neginf=-1e10)
+                        out = cp.nan_to_num(out, nan=0.0, posinf=1e10, neginf=-1e10)
                         out = out.reshape(N_tr, B * dk)
                         fold_cands.append(out)
                         for bi in range(B):
                             for li in range(dk):
                                 gi = feat_idx[li]
-                                fold_meta.append((fi,
-                                    f"({beam[bi][2]} {opname} {local_names[li]})",
-                                    beam[bi][4].binary(opname, gi),
-                                    beam[bi][5] + (1 if local_names[li] not in beam[bi][2] else 0)))
+                                fold_meta.append(
+                                    (
+                                        fi,
+                                        f"({beam[bi][2]} {opname} {local_names[li]})",
+                                        beam[bi][4].binary(opname, gi),
+                                        beam[bi][5]
+                                        + (1 if local_names[li] not in beam[bi][2] else 0),
+                                    )
+                                )
                     except:
                         pass
 
                 for opname, opfn in UNARY_OPS_LIST:
                     try:
                         out = opfn(beam_vals)
-                        out = cp.nan_to_num(out, nan=0., posinf=1e10, neginf=-1e10)
+                        out = cp.nan_to_num(out, nan=0.0, posinf=1e10, neginf=-1e10)
                         fold_cands.append(out)
                         for bi in range(B):
-                            fold_meta.append((fi,
-                                f"{opname}({beam[bi][2]})",
-                                beam[bi][4].unary(opname),
-                                beam[bi][5]))
+                            fold_meta.append(
+                                (
+                                    fi,
+                                    f"{opname}({beam[bi][2]})",
+                                    beam[bi][4].unary(opname),
+                                    beam[bi][5],
+                                )
+                            )
                     except:
                         pass
 
@@ -409,7 +460,7 @@ def batched_beam_search(X_gpu_full, y_gpu_full, feat_names,
                     f1s_cpu = f1s.get()
 
                     # Apply meta pruning + A* priority, build new beam
-                    crit_fn, crit_thresh = crit_cache.get(fold_i, (None, 0.))
+                    crit_fn, crit_thresh = crit_cache.get(fold_i, (None, 0.0))
                     new_beam = []
                     for i in range(K_fold):
                         f1_val = float(f1s_cpu[i])
@@ -437,11 +488,12 @@ def batched_beam_search(X_gpu_full, y_gpu_full, feat_names,
 
 # ─── CPU Baselines ─────────────────────────────────────────────────
 
+
 def run_sklearn_fold(X, y, tr, te, fi):
     out = {}
     for nm, clf in [
-        ("GB", GradientBoostingClassifier(n_estimators=100, max_depth=4, random_state=42+fi)),
-        ("RF", RandomForestClassifier(n_estimators=100, random_state=42+fi)),
+        ("GB", GradientBoostingClassifier(n_estimators=100, max_depth=4, random_state=42 + fi)),
+        ("RF", RandomForestClassifier(n_estimators=100, random_state=42 + fi)),
         ("LR", LogisticRegression(max_iter=1000, random_state=42)),
     ]:
         clf.fit(X[tr], y[tr])
@@ -451,12 +503,29 @@ def run_sklearn_fold(X, y, tr, te, fi):
 
 # ─── Main ──────────────────────────────────────────────────────────
 
-def run_dataset(name, X, y, features, n_repeats=200, n_folds=5,
-                max_depth=4, n_subspaces=20, subspace_k=8, batch_size=50):
+
+def run_dataset(
+    name,
+    X,
+    y,
+    features,
+    n_repeats=200,
+    n_folds=5,
+    max_depth=4,
+    n_subspaces=20,
+    subspace_k=8,
+    batch_size=50,
+):
     total = n_repeats * n_folds
     log.info("=" * 70)
-    log.info("BATCHED A* BEAM: %s (N=%d, d=%d) — %d folds, batch=%d",
-             name, X.shape[0], X.shape[1], total, batch_size)
+    log.info(
+        "BATCHED A* BEAM: %s (N=%d, d=%d) — %d folds, batch=%d",
+        name,
+        X.shape[0],
+        X.shape[1],
+        total,
+        batch_size,
+    )
     log.info("=" * 70)
 
     cv = RepeatedStratifiedKFold(n_splits=n_folds, n_repeats=n_repeats, random_state=42)
@@ -472,16 +541,24 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5,
     for fold_i, (tr, te) in enumerate(splits):
         cache_key = hash(tr.tobytes())
         if cache_key not in crit_cache:
-            crit_fn, crit_thresh, crit_name, prune_rate = quick_meta_search(
-                X[tr], y[tr], features)
+            crit_fn, crit_thresh, crit_name, prune_rate = quick_meta_search(X[tr], y[tr], features)
             crit_cache[cache_key] = (crit_fn, crit_thresh)
             if fold_i < 5:
-                log.info("    Fold %d: %s < %.4f → prune %.1f%%",
-                         fold_i, crit_name, crit_thresh, 100*prune_rate)
+                log.info(
+                    "    Fold %d: %s < %.4f → prune %.1f%%",
+                    fold_i,
+                    crit_name,
+                    crit_thresh,
+                    100 * prune_rate,
+                )
         # Also store by fold_i for lookup
         crit_cache[fold_i] = crit_cache[cache_key]
     meta_time = time.time() - t_meta
-    log.info("  Meta-search: %.0fs (%d unique)", meta_time, len(set(hash(tr.tobytes()) for tr, te in splits)))
+    log.info(
+        "  Meta-search: %.0fs (%d unique)",
+        meta_time,
+        len(set(hash(tr.tobytes()) for tr, te in splits)),
+    )
 
     # Phase 2: Batched A* beam search
     astar_f1s, astar_train_f1s, formulas = [], [], []
@@ -495,14 +572,21 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5,
             fold_groups.append((i, tr, te))
 
         batch_results = batched_beam_search(
-            X_gpu, y_gpu, features, fold_groups, crit_cache,
-            max_depth=max_depth, beam_width=50,
-            n_subspaces=n_subspaces, subspace_k=subspace_k)
+            X_gpu,
+            y_gpu,
+            features,
+            fold_groups,
+            crit_cache,
+            max_depth=max_depth,
+            beam_width=50,
+            n_subspaces=n_subspaces,
+            subspace_k=subspace_k,
+        )
 
         for fi, (fold_i, tr, te) in enumerate(fold_groups):
             if batch_results[fi] is None:
-                astar_f1s.append(0.)
-                astar_train_f1s.append(0.)
+                astar_f1s.append(0.0)
+                astar_train_f1s.append(0.0)
                 formulas.append("")
                 continue
 
@@ -521,11 +605,15 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5,
         elapsed = time.time() - t0
         if done > 0 and elapsed > 0:
             rate = done / elapsed
-            log.info("  Batch %d-%d  train=%.3f test=%.3f  %.2f folds/s  ETA %.0fs",
-                     batch_start, batch_end,
-                     np.mean(astar_train_f1s[-batch_size:]),
-                     np.mean(astar_f1s[-batch_size:]),
-                     rate, (total - done) / rate)
+            log.info(
+                "  Batch %d-%d  train=%.3f test=%.3f  %.2f folds/s  ETA %.0fs",
+                batch_start,
+                batch_end,
+                np.mean(astar_train_f1s[-batch_size:]),
+                np.mean(astar_f1s[-batch_size:]),
+                rate,
+                (total - done) / rate,
+            )
 
     gpu_time = time.time() - t0
     log.info("  GPU done: %.0fs (%.2f folds/s)", gpu_time, total / max(gpu_time, 0.1))
@@ -537,7 +625,8 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5,
     t1 = time.time()
     n_jobs = min(os.cpu_count() or 1, 20)
     baselines = Parallel(n_jobs=n_jobs, backend="loky", verbose=0)(
-        delayed(run_sklearn_fold)(X, y, tr, te, fi) for fi, (tr, te) in enumerate(splits))
+        delayed(run_sklearn_fold)(X, y, tr, te, fi) for fi, (tr, te) in enumerate(splits)
+    )
     cpu_time = time.time() - t1
 
     astar_f1s = np.array(astar_f1s)
@@ -547,30 +636,44 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5,
         bf = np.array([r[bn] for r in baselines])
         diff = astar_f1s - bf
         t_stat, p_val = stats.ttest_1samp(diff, 0)
-        results[bn] = {"mean": float(bf.mean()), "diff": float(diff.mean()),
-                        "sigma": float(abs(t_stat)), "dir": "A*>" if diff.mean() > 0 else f"{bn}>"}
+        results[bn] = {
+            "mean": float(bf.mean()),
+            "diff": float(diff.mean()),
+            "sigma": float(abs(t_stat)),
+            "dir": "A*>" if diff.mean() > 0 else f"{bn}>",
+        }
 
-    fc = Counter(formulas); top = fc.most_common(1)[0]
-    log.info("  FORMULA: %s (%.0f%%)", top[0][:60], 100*top[1]/len(formulas))
-    log.info("  TRAIN: %.4f  TEST: %.4f  gap=%.4f",
-             astar_train_f1s.mean(), astar_f1s.mean(),
-             astar_train_f1s.mean() - astar_f1s.mean())
+    fc = Counter(formulas)
+    top = fc.most_common(1)[0]
+    log.info("  FORMULA: %s (%.0f%%)", top[0][:60], 100 * top[1] / len(formulas))
+    log.info(
+        "  TRAIN: %.4f  TEST: %.4f  gap=%.4f",
+        astar_train_f1s.mean(),
+        astar_f1s.mean(),
+        astar_train_f1s.mean() - astar_f1s.mean(),
+    )
     for bn in ["GB", "RF", "LR"]:
         b = results[bn]
-        log.info("  vs %-3s: %.4f  diff=%+.4f  %.1fs  %s", bn, b["mean"], b["diff"], b["sigma"], b["dir"])
+        log.info(
+            "  vs %-3s: %.4f  diff=%+.4f  %.1fs  %s", bn, b["mean"], b["diff"], b["sigma"], b["dir"]
+        )
 
-    return {"name": name, "test_f1": float(astar_f1s.mean()),
-            "train_f1": float(astar_train_f1s.mean()), "formula": top[0],
-            "baselines": results}
+    return {
+        "name": name,
+        "test_f1": float(astar_f1s.mean()),
+        "train_f1": float(astar_train_f1s.mean()),
+        "formula": top[0],
+        "baselines": results,
+    }
 
 
 def main():
     log.info("FOLD-BATCHED A* BEAM SEARCH WITH META-LEARNED PRUNING")
 
     props = cp.cuda.runtime.getDeviceProperties(0)
-    log.info("GPU: %s (%.1f GB free)", props["name"].decode(),
-             cp.cuda.Device(0).mem_info[0] / 1e9)
-    _ = cp.sort(cp.random.rand(10000, 100), axis=0); cp.cuda.Stream.null.synchronize()
+    log.info("GPU: %s (%.1f GB free)", props["name"].decode(), cp.cuda.Device(0).mem_info[0] / 1e9)
+    _ = cp.sort(cp.random.rand(10000, 100), axis=0)
+    cp.cuda.Stream.null.synchronize()
 
     datasets = []
 
@@ -616,8 +719,9 @@ def main():
                 y = ds.target.astype(int)
             if len(np.unique(y)) != 2:
                 y = (y == y.max()).astype(int)
-            datasets.append((f"{short}({X.shape[0]}x{X.shape[1]})", X, y,
-                           [f"v{i}" for i in range(X.shape[1])]))
+            datasets.append(
+                (f"{short}({X.shape[0]}x{X.shape[1]})", X, y, [f"v{i}" for i in range(X.shape[1])])
+            )
             log.info("Loaded %s: N=%d d=%d prev=%.2f", short, X.shape[0], X.shape[1], y.mean())
         except Exception as e:
             log.warning("%s: %s", oml_name, e)
@@ -625,8 +729,18 @@ def main():
     all_results = []
     for name, X, y, feats in datasets:
         n_sub = 20 if X.shape[1] > 15 else 10
-        r = run_dataset(name, X, y, feats, n_repeats=100, n_folds=5,
-                        max_depth=4, n_subspaces=n_sub, subspace_k=8, batch_size=50)
+        r = run_dataset(
+            name,
+            X,
+            y,
+            feats,
+            n_repeats=100,
+            n_folds=5,
+            max_depth=4,
+            n_subspaces=n_sub,
+            subspace_k=8,
+            batch_size=50,
+        )
         all_results.append(r)
 
     with open("batched_results.json", "w") as f:
@@ -635,11 +749,18 @@ def main():
     log.info("\n" + "=" * 100)
     log.info("FINAL — Batched A* Beam (meta-pruned, depth 4, fair eval)")
     for r in all_results:
-        log.info("%-25s test=%.4f  %s  GB:%.1f%s RF:%.1f%s LR:%.1f%s",
-                 r["name"], r["test_f1"], r["formula"][:25],
-                 r["baselines"]["GB"]["sigma"], r["baselines"]["GB"]["dir"],
-                 r["baselines"]["RF"]["sigma"], r["baselines"]["RF"]["dir"],
-                 r["baselines"]["LR"]["sigma"], r["baselines"]["LR"]["dir"])
+        log.info(
+            "%-25s test=%.4f  %s  GB:%.1f%s RF:%.1f%s LR:%.1f%s",
+            r["name"],
+            r["test_f1"],
+            r["formula"][:25],
+            r["baselines"]["GB"]["sigma"],
+            r["baselines"]["GB"]["dir"],
+            r["baselines"]["RF"]["sigma"],
+            r["baselines"]["RF"]["dir"],
+            r["baselines"]["LR"]["sigma"],
+            r["baselines"]["LR"]["dir"],
+        )
 
 
 if __name__ == "__main__":

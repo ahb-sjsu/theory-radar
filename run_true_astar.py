@@ -30,7 +30,6 @@ import heapq
 import logging
 import time
 from dataclasses import dataclass, field
-from multiprocessing import Pool, cpu_count
 
 import numpy as np
 from sklearn.metrics import roc_auc_score
@@ -40,6 +39,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 
 import sys
+
 sys.path.insert(0, "src")
 from symbolic_search._ops import BINARY_OPS, UNARY_OPS
 
@@ -153,8 +153,7 @@ def astar_search(
             best_cost = cost
 
     if verbose:
-        log.info("A* initialized with %d features, best F1=%.4f (%s)",
-                 d, best_f1, best_formula)
+        log.info("A* initialized with %d features, best F1=%.4f (%s)", d, best_f1, best_formula)
 
     # A* main loop
     while frontier and expansions < max_expansions:
@@ -209,19 +208,23 @@ def astar_search(
                     best_formula = child_desc
                     best_cost = child_cost
                     if verbose and child_f1 > best_f1 - 0.001:
-                        log.info("  NEW BEST: %s F1=%.4f cost=%d",
-                                 child_desc[:50], child_f1, child_cost)
+                        log.info(
+                            "  NEW BEST: %s F1=%.4f cost=%d", child_desc[:50], child_f1, child_cost
+                        )
 
                 if child_desc not in seen:
-                    heapq.heappush(frontier, AStarState(
-                        priority=child_cost + h,
-                        cost=child_cost,
-                        formula_desc=child_desc,
-                        values=child_vals,
-                        f1=child_f1,
-                        auc=child_auc,
-                        depth=state.depth + 1,
-                    ))
+                    heapq.heappush(
+                        frontier,
+                        AStarState(
+                            priority=child_cost + h,
+                            cost=child_cost,
+                            formula_desc=child_desc,
+                            values=child_vals,
+                            f1=child_f1,
+                            auc=child_auc,
+                            depth=state.depth + 1,
+                        ),
+                    )
             except Exception:
                 pass
 
@@ -255,25 +258,37 @@ def astar_search(
                         best_formula = child_desc
                         best_cost = child_cost
                         if verbose:
-                            log.info("  NEW BEST: %s F1=%.4f cost=%d",
-                                     child_desc[:60], child_f1, child_cost)
+                            log.info(
+                                "  NEW BEST: %s F1=%.4f cost=%d",
+                                child_desc[:60],
+                                child_f1,
+                                child_cost,
+                            )
 
                     if child_desc not in seen and state.depth + 1 <= max_depth:
-                        heapq.heappush(frontier, AStarState(
-                            priority=child_cost + h,
-                            cost=child_cost,
-                            formula_desc=child_desc,
-                            values=child_vals,
-                            f1=child_f1,
-                            auc=child_auc,
-                            depth=state.depth + 1,
-                        ))
+                        heapq.heappush(
+                            frontier,
+                            AStarState(
+                                priority=child_cost + h,
+                                cost=child_cost,
+                                formula_desc=child_desc,
+                                values=child_vals,
+                                f1=child_f1,
+                                auc=child_auc,
+                                depth=state.depth + 1,
+                            ),
+                        )
                 except Exception:
                     pass
 
         if expansions % 1000 == 0 and verbose:
-            log.info("  [%d expansions] best=%.4f (%s) frontier=%d",
-                     expansions, best_f1, best_formula[:40], len(frontier))
+            log.info(
+                "  [%d expansions] best=%.4f (%s) frontier=%d",
+                expansions,
+                best_f1,
+                best_formula[:40],
+                len(frontier),
+            )
 
     return {
         "best_f1": best_f1,
@@ -326,7 +341,9 @@ def main():
         log.info("\n--- A* (no target, find best) ---")
         t0 = time.time()
         result = astar_search(
-            X, y, features,
+            X,
+            y,
+            features,
             f1_target=0.0,
             max_depth=3,
             max_expansions=50000,
@@ -334,11 +351,19 @@ def main():
         )
         time_astar = time.time() - t0
 
-        log.info("Result: %s (F1=%.4f, cost=%d)",
-                 result["best_formula"][:60], result["best_f1"], result["best_cost"])
-        log.info("Stats: %d expansions, %d evaluated, %d monotone-pruned, %d AUROC-pruned",
-                 result["expansions"], result["evaluated"],
-                 result["pruned_monotone"], result["pruned_auroc"])
+        log.info(
+            "Result: %s (F1=%.4f, cost=%d)",
+            result["best_formula"][:60],
+            result["best_f1"],
+            result["best_cost"],
+        )
+        log.info(
+            "Stats: %d expansions, %d evaluated, %d monotone-pruned, %d AUROC-pruned",
+            result["expansions"],
+            result["evaluated"],
+            result["pruned_monotone"],
+            result["pruned_auroc"],
+        )
         log.info("Time: %.2fs, frontier remaining: %d", time_astar, result["frontier_remaining"])
 
         # A* with target (find simplest meeting 90% of ensemble)
@@ -346,7 +371,9 @@ def main():
         log.info("\n--- A* (target=%.3f = 90%% of ensemble) ---", target)
         t0 = time.time()
         result_target = astar_search(
-            X, y, features,
+            X,
+            y,
+            features,
             f1_target=target,
             max_depth=3,
             max_expansions=50000,
@@ -354,15 +381,23 @@ def main():
         )
         time_target = time.time() - t0
 
-        log.info("Result: %s (F1=%.4f, cost=%d)",
-                 result_target["best_formula"][:60],
-                 result_target["best_f1"], result_target["best_cost"])
+        log.info(
+            "Result: %s (F1=%.4f, cost=%d)",
+            result_target["best_formula"][:60],
+            result_target["best_f1"],
+            result_target["best_cost"],
+        )
         log.info("Met target: %s", "YES" if result_target["best_f1"] >= target else "NO")
-        log.info("Stats: %d expansions (%.0f%% of unlimited)",
-                 result_target["expansions"],
-                 100 * result_target["expansions"] / max(result["expansions"], 1))
-        log.info("Time: %.2fs (%.1fx speedup from target)",
-                 time_target, time_astar / max(time_target, 0.001))
+        log.info(
+            "Stats: %d expansions (%.0f%% of unlimited)",
+            result_target["expansions"],
+            100 * result_target["expansions"] / max(result["expansions"], 1),
+        )
+        log.info(
+            "Time: %.2fs (%.1fx speedup from target)",
+            time_target,
+            time_astar / max(time_target, 0.001),
+        )
 
     # Summary
     log.info("\n" + "=" * 70)

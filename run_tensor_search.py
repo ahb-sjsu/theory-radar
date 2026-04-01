@@ -21,16 +21,14 @@ Fuzzing:
 
 from __future__ import annotations
 
-import heapq
 import logging
 import time
-from dataclasses import dataclass, field
 
 import numpy as np
 from numpy.typing import NDArray
 
 from tensor_3body.hamiltonian import hessian_analytical
-from tensor_3body.tensor_ops import reshape_to_rank6, effective_rank, singular_values
+from tensor_3body.tensor_ops import reshape_to_rank6, effective_rank
 from tensor_3body.sampling import config_to_phase_space_circular
 from tensor_3body.landscape import load_landscape
 
@@ -40,6 +38,7 @@ log = logging.getLogger(__name__)
 try:
     import tensorly
     from tensorly.decomposition import tucker, parafac
+
     HAS_TENSORLY = True
 except ImportError:
     HAS_TENSORLY = False
@@ -48,6 +47,7 @@ except ImportError:
 # ============================================================
 # Tensor analysis operations
 # ============================================================
+
 
 def core_sparsity(T: NDArray) -> float:
     """Fraction of near-zero entries in the Tucker core tensor."""
@@ -68,8 +68,9 @@ def cp_rank_estimate(T: NDArray, max_rank: int = 12) -> int:
         return 0
     for r in range(1, max_rank + 1):
         try:
-            weights, factors = parafac(T, rank=r, init='random', n_iter_max=100,
-                                        random_state=42, normalize_factors=True)
+            weights, factors = parafac(
+                T, rank=r, init="random", n_iter_max=100, random_state=42, normalize_factors=True
+            )
             T_approx = tensorly.cp_to_tensor((weights, factors))
             error = np.linalg.norm(T - T_approx) / T_norm
             if error < 0.05:
@@ -97,7 +98,7 @@ def mode_pair_coupling(T: NDArray) -> dict:
 
             # SVD of the (i,j)-unfolding
             sv = np.linalg.svd(mat, compute_uv=False)
-            total = np.sum(sv ** 2)
+            total = np.sum(sv**2)
 
             # Concentration: how much in first singular value
             if total > 1e-30:
@@ -112,7 +113,10 @@ def mode_pair_coupling(T: NDArray) -> dict:
             couplings[key] = {
                 "concentration": concentration,
                 "eff_rank": eff_rank,
-                "max_rank": min(T.shape[i] * T.shape[j], int(np.prod([T.shape[k] for k in range(n_modes) if k not in (i, j)]))),
+                "max_rank": min(
+                    T.shape[i] * T.shape[j],
+                    int(np.prod([T.shape[k] for k in range(n_modes) if k not in (i, j)])),
+                ),
             }
 
     return couplings
@@ -145,10 +149,12 @@ def tensor_invariants(T: NDArray) -> dict:
         entropy = 0
 
     # Frobenius norm
-    frob = np.linalg.norm(H, 'fro')
+    frob = np.linalg.norm(H, "fro")
 
     return {
-        "tr1": tr1, "tr2": tr2, "tr3": tr3,
+        "tr1": tr1,
+        "tr2": tr2,
+        "tr3": tr3,
         "det_sign": np.sign(det),
         "log_det": np.log(abs(det) + 1e-30),
         "condition": cond,
@@ -179,7 +185,7 @@ def symmetry_score(T: NDArray) -> dict:
     # T shape: (body1=2, spat1=3, phase1=2, body2=2, spat2=3, phase2=2)
     # Sum over body1, phase1, body2, phase2 -> (spat1=3, spat2=3)
     if T.ndim == 6:
-        spatial = np.einsum('abcdef->be', T)  # sum over body(a,d) and phase(c,f) -> (3,3)
+        spatial = np.einsum("abcdef->be", T)  # sum over body(a,d) and phase(c,f) -> (3,3)
     else:
         spatial = np.eye(3)
     spatial_sym = np.linalg.norm(spatial - spatial.T) / (np.linalg.norm(spatial) + 1e-30)
@@ -199,6 +205,7 @@ def symmetry_score(T: NDArray) -> dict:
 # ============================================================
 # Tensor fuzzing
 # ============================================================
+
 
 def fuzz_tensor_symmetries(
     H: NDArray,
@@ -232,7 +239,9 @@ def fuzz_tensor_symmetries(
         rank_pert = effective_rank(H_pert)
 
         # Spectrum change
-        spec_change = np.linalg.norm(eigenvalues_pert - eigenvalues_0) / (np.linalg.norm(eigenvalues_0) + 1e-30)
+        spec_change = np.linalg.norm(eigenvalues_pert - eigenvalues_0) / (
+            np.linalg.norm(eigenvalues_0) + 1e-30
+        )
         results["spectrum_sensitivity"].append(spec_change)
 
         if spec_change < 0.01:
@@ -253,6 +262,7 @@ def fuzz_tensor_symmetries(
 # Main analysis
 # ============================================================
 
+
 def main():
     log.info("=" * 70)
     log.info("HIGHER-ORDER TENSOR SEARCH")
@@ -271,14 +281,22 @@ def main():
             indices = np.random.choice(indices, size=50, replace=False)
         for idx in indices:
             z = config_to_phase_space_circular(
-                float(data["r1"][idx]), float(data["r2"][idx]),
-                float(data["theta"][idx]), float(data["phi"][idx]),
-                m1, m2, m3,
+                float(data["r1"][idx]),
+                float(data["r2"][idx]),
+                float(data["theta"][idx]),
+                float(data["phi"][idx]),
+                m1,
+                m2,
+                m3,
             )
-            configs.append({
-                "z": z, "rank": int(data["eff_rank"][idx]),
-                "r1": float(data["r1"][idx]), "r2": float(data["r2"][idx]),
-            })
+            configs.append(
+                {
+                    "z": z,
+                    "rank": int(data["eff_rank"][idx]),
+                    "r1": float(data["r1"][idx]),
+                    "r2": float(data["r2"][idx]),
+                }
+            )
 
     log.info("Analyzing %d configurations across ranks 7-12", len(configs))
 
@@ -310,7 +328,8 @@ def main():
 
         result = {
             "rank": cfg["rank"],
-            "r1": cfg["r1"], "r2": cfg["r2"],
+            "r1": cfg["r1"],
+            "r2": cfg["r2"],
             "core_sparsity": sparsity,
             "cp_rank": cp_rank,
             "body_exchange_sym": symmetries["body_exchange"],
@@ -345,12 +364,22 @@ def main():
     log.info("RESULTS BY RANK")
     log.info("=" * 70)
 
-    properties = ["core_sparsity", "cp_rank", "body_exchange_sym", "spatial_sym",
-                   "phase_decoupling", "spectral_entropy", "condition",
-                   "eigenvalue_gap", "fuzz_mean_sensitivity", "fuzz_rank_stability"]
+    properties = [
+        "core_sparsity",
+        "cp_rank",
+        "body_exchange_sym",
+        "spatial_sym",
+        "phase_decoupling",
+        "spectral_entropy",
+        "condition",
+        "eigenvalue_gap",
+        "fuzz_mean_sensitivity",
+        "fuzz_rank_stability",
+    ]
 
-    log.info("\n%-6s  " + "  ".join(f"%-12s" for _ in properties),
-             "Rank", *[p[:12] for p in properties])
+    log.info(
+        "\n%-6s  " + "  ".join("%-12s" for _ in properties), "Rank", *[p[:12] for p in properties]
+    )
 
     for rank in [7, 8, 9, 10, 11, 12]:
         subset = [r for r in all_results if r["rank"] == rank]
@@ -360,7 +389,7 @@ def main():
         for prop in properties:
             v = np.mean([r[prop] for r in subset])
             vals.append(v)
-        log.info("%-6d  " + "  ".join(f"%-12.4f" for _ in vals), rank, *vals)
+        log.info("%-6d  " + "  ".join("%-12.4f" for _ in vals), rank, *vals)
 
     # Novel correlations: which properties best distinguish low-rank from high-rank?
     log.info("\n" + "=" * 70)
@@ -376,9 +405,12 @@ def main():
             continue
         corr = np.corrcoef(ranks_arr[valid], vals[valid])[0, 1]
         if abs(corr) > 0.1:
-            log.info("  %-25s vs rank: r = %+.4f %s",
-                     prop, corr,
-                     "***" if abs(corr) > 0.5 else "**" if abs(corr) > 0.3 else "*")
+            log.info(
+                "  %-25s vs rank: r = %+.4f %s",
+                prop,
+                corr,
+                "***" if abs(corr) > 0.5 else "**" if abs(corr) > 0.3 else "*",
+            )
 
     # Mode coupling patterns
     log.info("\n--- Mode Coupling Patterns ---")
@@ -388,10 +420,15 @@ def main():
             continue
         # Most common strongest coupling
         from collections import Counter
+
         strongest = Counter(r["strongest_coupling"] for r in subset)
         weakest = Counter(r["weakest_coupling"] for r in subset)
-        log.info("  rank=%d: strongest=%s, weakest=%s",
-                 rank, strongest.most_common(1)[0], weakest.most_common(1)[0])
+        log.info(
+            "  rank=%d: strongest=%s, weakest=%s",
+            rank,
+            strongest.most_common(1)[0],
+            weakest.most_common(1)[0],
+        )
 
     # Fuzz discoveries: do low-rank configs have more spectral symmetries?
     log.info("\n--- Fuzzing: Spectral Stability by Rank ---")
@@ -402,8 +439,13 @@ def main():
         mean_sens = np.mean([r["fuzz_mean_sensitivity"] for r in subset])
         mean_stab = np.mean([r["fuzz_rank_stability"] for r in subset])
         mean_pres = np.mean([r["fuzz_n_spectrum_preserving"] for r in subset])
-        log.info("  rank=%d: sensitivity=%.4f, rank_stability=%.2f, spectrum_preserving=%.1f/100",
-                 rank, mean_sens, mean_stab, mean_pres)
+        log.info(
+            "  rank=%d: sensitivity=%.4f, rank_stability=%.2f, spectrum_preserving=%.1f/100",
+            rank,
+            mean_sens,
+            mean_stab,
+            mean_pres,
+        )
 
 
 if __name__ == "__main__":

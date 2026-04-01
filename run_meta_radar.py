@@ -11,6 +11,7 @@ with the same beam search machinery we use for classification formulas.
 """
 
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import cupy as cp
@@ -18,7 +19,6 @@ import numpy as np
 import logging
 import time
 import json
-from itertools import product
 
 from sklearn.datasets import load_breast_cancer, load_wine, fetch_openml
 from sklearn.preprocessing import StandardScaler
@@ -28,6 +28,7 @@ log = logging.getLogger()
 
 
 # ─── GPU Batch F1 (with constant-formula fix) ─────────────────────
+
 
 def gpu_batch_f1(vals, labels):
     """Optimal thresholded F1 for each column."""
@@ -88,7 +89,7 @@ BINARY_OPS = {
 UNARY_OPS = {
     "log": lambda x: cp.log(cp.abs(x) + 1e-30),
     "sqrt": lambda x: cp.sqrt(cp.abs(x)),
-    "sq": lambda x: x ** 2,
+    "sq": lambda x: x**2,
     "abs": lambda x: cp.abs(x),
     "sigmoid": lambda x: 1.0 / (1.0 + cp.exp(-cp.clip(x, -500, 500))),
     "tanh": lambda x: cp.tanh(cp.clip(x, -500, 500)),
@@ -96,6 +97,7 @@ UNARY_OPS = {
 
 
 # ─── Phase 1: Exhaustive enumeration → ground truth ───────────────
+
 
 def exhaustive_search(X_gpu, y_gpu, feat_names, max_depth=3):
     """Enumerate ALL formulas up to max_depth. Return dict: formula → (depth, f1, auroc, values)."""
@@ -110,12 +112,16 @@ def exhaustive_search(X_gpu, y_gpu, feat_names, max_depth=3):
     for i in range(d):
         name = feat_names[i]
         catalog[name] = {
-            "depth": 1, "f1": float(f1s[i]), "auroc": float(aurocs[i]),
-            "values": X_gpu[:, i].copy(), "n_features": 1,
+            "depth": 1,
+            "f1": float(f1s[i]),
+            "auroc": float(aurocs[i]),
+            "values": X_gpu[:, i].copy(),
+            "n_features": 1,
         }
 
-    log.info("  Depth 1: %d formulas, best F1=%.4f", len(catalog),
-             max(v["f1"] for v in catalog.values()))
+    log.info(
+        "  Depth 1: %d formulas, best F1=%.4f", len(catalog), max(v["f1"] for v in catalog.values())
+    )
 
     prev_depth_formulas = list(catalog.keys())
 
@@ -139,8 +145,10 @@ def exhaustive_search(X_gpu, y_gpu, feat_names, max_depth=3):
                         if float(cp.var(cv)) < 1e-20:
                             continue
                         new_formulas[cname] = {
-                            "depth": depth, "values": cv,
-                            "n_features": parent["n_features"] + (1 if feat_names[j] not in parent_name else 0),
+                            "depth": depth,
+                            "values": cv,
+                            "n_features": parent["n_features"]
+                            + (1 if feat_names[j] not in parent_name else 0),
                             "parent": parent_name,
                         }
                     except Exception:
@@ -157,7 +165,8 @@ def exhaustive_search(X_gpu, y_gpu, feat_names, max_depth=3):
                     if float(cp.var(cv)) < 1e-20:
                         continue
                     new_formulas[cname] = {
-                        "depth": depth, "values": cv,
+                        "depth": depth,
+                        "values": cv,
                         "n_features": parent["n_features"],
                         "parent": parent_name,
                     }
@@ -181,8 +190,13 @@ def exhaustive_search(X_gpu, y_gpu, feat_names, max_depth=3):
             cp.get_default_memory_pool().free_all_blocks()
 
         best_f1 = max(v["f1"] for v in catalog.values())
-        log.info("  Depth %d: %d new formulas (%d total), best F1=%.4f",
-                 depth, len(new_formulas), len(catalog), best_f1)
+        log.info(
+            "  Depth %d: %d new formulas (%d total), best F1=%.4f",
+            depth,
+            len(new_formulas),
+            len(catalog),
+            best_f1,
+        )
 
         prev_depth_formulas = list(new_formulas.keys())
 
@@ -190,6 +204,7 @@ def exhaustive_search(X_gpu, y_gpu, feat_names, max_depth=3):
 
 
 # ─── Phase 2: Compute h*(n) for every node ────────────────────────
+
 
 def compute_hstar(catalog, max_depth):
     """For each formula, compute h* = min additional depth to reach the global best F1."""
@@ -200,7 +215,9 @@ def compute_hstar(catalog, max_depth):
             best_f1_at_depth[d] = info["f1"]
 
     global_best = max(info["f1"] for info in catalog.values())
-    log.info("  Best F1 per depth: %s", {d: f"{f:.4f}" for d, f in sorted(best_f1_at_depth.items())})
+    log.info(
+        "  Best F1 per depth: %s", {d: f"{f:.4f}" for d, f in sorted(best_f1_at_depth.items())}
+    )
     log.info("  Global best F1: %.4f", global_best)
 
     # h*(n) = minimum additional depth for ANY descendant of n to reach global_best
@@ -236,28 +253,32 @@ def compute_hstar(catalog, max_depth):
 
 # ─── Phase 3: Extract node features → build training set ──────────
 
+
 def extract_features(catalog, prevalence):
     """Extract heuristic-relevant features from each node."""
     rows = []
     for name, info in catalog.items():
         if "f1" not in info:
             continue
-        rows.append({
-            "name": name,
-            "depth": info["depth"],
-            "f1": info["f1"],
-            "auroc": info["auroc"],
-            "n_features": info["n_features"],
-            "hstar": info["hstar"],
-            # Derived features a heuristic could use:
-            "f1_gap": 1.0 - info["f1"],  # gap to perfect
-            "auroc_gap": 1.0 - info["auroc"],
-            "prevalence": prevalence,
-        })
+        rows.append(
+            {
+                "name": name,
+                "depth": info["depth"],
+                "f1": info["f1"],
+                "auroc": info["auroc"],
+                "n_features": info["n_features"],
+                "hstar": info["hstar"],
+                # Derived features a heuristic could use:
+                "f1_gap": 1.0 - info["f1"],  # gap to perfect
+                "auroc_gap": 1.0 - info["auroc"],
+                "prevalence": prevalence,
+            }
+        )
     return rows
 
 
 # ─── Phase 4: Search for optimal admissible heuristic ─────────────
+
 
 def search_heuristic(training_data):
     """Use beam search to find a formula over node features that is:
@@ -276,8 +297,13 @@ def search_heuristic(training_data):
     hstar_gpu = cp.asarray(hstar)
     N, d = X_gpu.shape
 
-    log.info("  Heuristic search: %d nodes, %d features, h* range [%d, %d]",
-             N, d, int(hstar.min()), int(hstar.max()))
+    log.info(
+        "  Heuristic search: %d nodes, %d features, h* range [%d, %d]",
+        N,
+        d,
+        int(hstar.min()),
+        int(hstar.max()),
+    )
 
     # For the heuristic, we want formulas that:
     # - Output values correlated with h* (higher when h* is higher)
@@ -316,15 +342,17 @@ def search_heuristic(training_data):
         slack = float((hstar_gpu - h_vals).sum())
         tightness = float((h_vals > 0).sum())  # how many nodes get non-zero h
 
-        best_formulas.append({
-            "formula": f"floor({alpha:.4f} * {feat_names[i]})",
-            "alpha": alpha,
-            "feature": feat_names[i],
-            "violations": violations,
-            "tightness": tightness,
-            "slack": slack,
-            "nonzero_frac": tightness / N,
-        })
+        best_formulas.append(
+            {
+                "formula": f"floor({alpha:.4f} * {feat_names[i]})",
+                "alpha": alpha,
+                "feature": feat_names[i],
+                "violations": violations,
+                "tightness": tightness,
+                "slack": slack,
+                "nonzero_frac": tightness / N,
+            }
+        )
 
     # Also try composite features
     for i in range(d):
@@ -359,14 +387,16 @@ def search_heuristic(training_data):
                 slack = float((hstar_gpu - h_vals).sum())
                 tightness = float((h_vals > 0).sum())
 
-                best_formulas.append({
-                    "formula": f"floor({alpha:.4f} * ({feat_names[i]} {opname} {feat_names[j]}))",
-                    "alpha": alpha,
-                    "violations": violations,
-                    "tightness": tightness,
-                    "slack": slack,
-                    "nonzero_frac": tightness / N,
-                })
+                best_formulas.append(
+                    {
+                        "formula": f"floor({alpha:.4f} * ({feat_names[i]} {opname} {feat_names[j]}))",
+                        "alpha": alpha,
+                        "violations": violations,
+                        "tightness": tightness,
+                        "slack": slack,
+                        "nonzero_frac": tightness / N,
+                    }
+                )
 
     # Sort by tightness (most non-zero predictions)
     best_formulas.sort(key=lambda x: -x["tightness"])
@@ -374,6 +404,7 @@ def search_heuristic(training_data):
 
 
 # ─── Main ─────���────────────────────────────────────────────────────
+
 
 def run_on_dataset(name, X, y, feat_names, max_d_features=10):
     """Run the full meta-radar pipeline on one dataset."""
@@ -437,8 +468,13 @@ def run_on_dataset(name, X, y, feat_names, max_d_features=10):
     log.info("  %-60s  %-8s  %-8s  %-10s", "Formula", "NonZero%", "Slack", "Violations")
     log.info("  " + "-" * 90)
     for h in heuristics[:10]:
-        log.info("  %-60s  %5.1f%%    %8.0f  %d",
-                 h["formula"][:60], 100 * h["nonzero_frac"], h["slack"], h["violations"])
+        log.info(
+            "  %-60s  %5.1f%%    %8.0f  %d",
+            h["formula"][:60],
+            100 * h["nonzero_frac"],
+            h["slack"],
+            h["violations"],
+        )
 
     return {
         "dataset": name,
@@ -456,8 +492,7 @@ def main():
     log.info("=" * 70)
 
     props = cp.cuda.runtime.getDeviceProperties(0)
-    log.info("GPU: %s (%.1f GB free)", props["name"].decode(),
-             cp.cuda.Device(0).mem_info[0] / 1e9)
+    log.info("GPU: %s (%.1f GB free)", props["name"].decode(), cp.cuda.Device(0).mem_info[0] / 1e9)
 
     datasets = []
 

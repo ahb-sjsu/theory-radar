@@ -10,6 +10,7 @@ Uses joblib for parallel sklearn baselines on all CPU cores.
 """
 
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import cupy as cp
@@ -34,37 +35,97 @@ log = logging.getLogger()
 
 # ─── Vectorized GPU Binary Ops (broadcasting: (N,B,1) op (N,1,d) → (N,B,d)) ──
 
-def _vbin_add(B, F): return B + F
-def _vbin_sub(B, F): return B - F
-def _vbin_mul(B, F): return B * F
-def _vbin_div(B, F): return B / (F + 1e-30)
-def _vbin_max(B, F): return cp.maximum(B, F)
-def _vbin_min(B, F): return cp.minimum(B, F)
-def _vbin_hypot(B, F): return cp.sqrt(B**2 + F**2)
-def _vbin_diffsq(B, F): return (B - F) ** 2
-def _vbin_harmonic(B, F): return 2 * B * F / (B + F + 1e-30)
-def _vbin_geometric(B, F): return cp.sign(B * F) * cp.sqrt(cp.abs(B * F))
+
+def _vbin_add(B, F):
+    return B + F
+
+
+def _vbin_sub(B, F):
+    return B - F
+
+
+def _vbin_mul(B, F):
+    return B * F
+
+
+def _vbin_div(B, F):
+    return B / (F + 1e-30)
+
+
+def _vbin_max(B, F):
+    return cp.maximum(B, F)
+
+
+def _vbin_min(B, F):
+    return cp.minimum(B, F)
+
+
+def _vbin_hypot(B, F):
+    return cp.sqrt(B**2 + F**2)
+
+
+def _vbin_diffsq(B, F):
+    return (B - F) ** 2
+
+
+def _vbin_harmonic(B, F):
+    return 2 * B * F / (B + F + 1e-30)
+
+
+def _vbin_geometric(B, F):
+    return cp.sign(B * F) * cp.sqrt(cp.abs(B * F))
+
 
 VBINARY = [
-    ("+", _vbin_add), ("-", _vbin_sub), ("*", _vbin_mul), ("/", _vbin_div),
-    ("max", _vbin_max), ("min", _vbin_min), ("hypot", _vbin_hypot),
-    ("diff_sq", _vbin_diffsq), ("harmonic", _vbin_harmonic), ("geometric", _vbin_geometric),
+    ("+", _vbin_add),
+    ("-", _vbin_sub),
+    ("*", _vbin_mul),
+    ("/", _vbin_div),
+    ("max", _vbin_max),
+    ("min", _vbin_min),
+    ("hypot", _vbin_hypot),
+    ("diff_sq", _vbin_diffsq),
+    ("harmonic", _vbin_harmonic),
+    ("geometric", _vbin_geometric),
 ]
 
-def _vun_log(V): return cp.log(cp.abs(V) + 1e-30)
-def _vun_sqrt(V): return cp.sqrt(cp.abs(V))
-def _vun_sq(V): return V ** 2
-def _vun_abs(V): return cp.abs(V)
-def _vun_sigmoid(V): return 1.0 / (1.0 + cp.exp(-cp.clip(V, -500, 500)))
-def _vun_tanh(V): return cp.tanh(cp.clip(V, -500, 500))
+
+def _vun_log(V):
+    return cp.log(cp.abs(V) + 1e-30)
+
+
+def _vun_sqrt(V):
+    return cp.sqrt(cp.abs(V))
+
+
+def _vun_sq(V):
+    return V**2
+
+
+def _vun_abs(V):
+    return cp.abs(V)
+
+
+def _vun_sigmoid(V):
+    return 1.0 / (1.0 + cp.exp(-cp.clip(V, -500, 500)))
+
+
+def _vun_tanh(V):
+    return cp.tanh(cp.clip(V, -500, 500))
+
 
 VUNARY = [
-    ("log", _vun_log), ("sqrt", _vun_sqrt), ("sq", _vun_sq),
-    ("abs", _vun_abs), ("sigmoid", _vun_sigmoid), ("tanh", _vun_tanh),
+    ("log", _vun_log),
+    ("sqrt", _vun_sqrt),
+    ("sq", _vun_sq),
+    ("abs", _vun_abs),
+    ("sigmoid", _vun_sigmoid),
+    ("tanh", _vun_tanh),
 ]
 
 
 # ─── GPU Batched F1 (fully vectorized, no Python loops) ───────────
+
 
 def gpu_batch_f1(vals, labels):
     """Optimal thresholded F1 for each column. vals: (N,K), labels: (N,) float."""
@@ -109,6 +170,7 @@ def _sweep_f1(vals, labels, pos):
 
 # ─── Fully Vectorized GPU Beam Search ─────────────────────────────
 
+
 def gpu_beam_search(X_gpu, y_gpu, feat_names, max_depth=3, beam_width=100):
     """Beam search with fully vectorized candidate generation + F1 eval.
 
@@ -142,17 +204,17 @@ def gpu_beam_search(X_gpu, y_gpu, feat_names, max_depth=3, beam_width=100):
 
         # Broadcast shapes: beams (N, B, 1) and features (N, 1, d)
         bv3 = beam_vals[:, :, None]  # (N, B, 1)
-        fv3 = X_gpu[:, None, :]     # (N, 1, d)
+        fv3 = X_gpu[:, None, :]  # (N, 1, d)
 
-        chunks = []       # list of (N, K_chunk) arrays
+        chunks = []  # list of (N, K_chunk) arrays
         name_chunks = []  # parallel list of name lists
 
         # Binary ops — each produces (N, B, d), reshape to (N, B*d)
         for opname, opfn in VBINARY:
             try:
-                out = opfn(bv3, fv3)                       # (N, B, d)
+                out = opfn(bv3, fv3)  # (N, B, d)
                 out = cp.nan_to_num(out, nan=0.0, posinf=1e10, neginf=-1e10)
-                out = out.reshape(N, B_cur * d)            # (N, B*d)
+                out = out.reshape(N, B_cur * d)  # (N, B*d)
                 chunks.append(out)
 
                 names = []
@@ -166,7 +228,7 @@ def gpu_beam_search(X_gpu, y_gpu, feat_names, max_depth=3, beam_width=100):
         # Unary ops — each produces (N, B)
         for opname, opfn in VUNARY:
             try:
-                out = opfn(beam_vals)                      # (N, B)
+                out = opfn(beam_vals)  # (N, B)
                 out = cp.nan_to_num(out, nan=0.0, posinf=1e10, neginf=-1e10)
                 chunks.append(out)
 
@@ -220,13 +282,14 @@ def gpu_beam_search(X_gpu, y_gpu, feat_names, max_depth=3, beam_width=100):
 
 # ─── CPU Baselines (parallel with joblib) ─────────────────────────
 
+
 def run_sklearn_fold(X, y, tr, te, fold_i):
     """3 sklearn baselines for one fold."""
     X_tr, X_te, y_tr, y_te = X[tr], X[te], y[tr], y[te]
     out = {}
     for name, clf in [
-        ("GB", GradientBoostingClassifier(n_estimators=100, max_depth=4, random_state=42+fold_i)),
-        ("RF", RandomForestClassifier(n_estimators=100, random_state=42+fold_i)),
+        ("GB", GradientBoostingClassifier(n_estimators=100, max_depth=4, random_state=42 + fold_i)),
+        ("RF", RandomForestClassifier(n_estimators=100, random_state=42 + fold_i)),
         ("LR", LogisticRegression(max_iter=1000, random_state=42)),
     ]:
         clf.fit(X_tr, y_tr)
@@ -236,11 +299,20 @@ def run_sklearn_fold(X, y, tr, te, fold_i):
 
 # ─── Main Pipeline ─────────────────────────────────────────────────
 
+
 def run_dataset(name, X, y, features, n_repeats=200, n_folds=5):
     total = n_repeats * n_folds
     log.info("=" * 70)
-    log.info("%s (N=%d, d=%d, prev=%.0f%%) — %dx%d = %d folds",
-             name, X.shape[0], X.shape[1], 100*y.mean(), n_repeats, n_folds, total)
+    log.info(
+        "%s (N=%d, d=%d, prev=%.0f%%) — %dx%d = %d folds",
+        name,
+        X.shape[0],
+        X.shape[1],
+        100 * y.mean(),
+        n_repeats,
+        n_folds,
+        total,
+    )
     log.info("=" * 70)
 
     cv = RepeatedStratifiedKFold(n_splits=n_folds, n_repeats=n_repeats, random_state=42)
@@ -256,20 +328,26 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5):
 
     for fold_i, (tr, te) in enumerate(splits):
         tr_gpu = cp.asarray(tr)
-        f1, formula = gpu_beam_search(X_gpu[tr_gpu], y_gpu[tr_gpu], features,
-                                       max_depth=3, beam_width=100)
+        f1, formula = gpu_beam_search(
+            X_gpu[tr_gpu], y_gpu[tr_gpu], features, max_depth=3, beam_width=100
+        )
         astar_f1s.append(f1)
         formulas.append(formula)
 
         if (fold_i + 1) % 100 == 0:
             elapsed = time.time() - t0
             rate = (fold_i + 1) / elapsed
-            log.info("  GPU %d/%d  A*=%.3f  %.1f folds/s  ETA %.0fs",
-                     fold_i+1, total, np.mean(astar_f1s[-100:]),
-                     rate, (total - fold_i - 1) / rate)
+            log.info(
+                "  GPU %d/%d  A*=%.3f  %.1f folds/s  ETA %.0fs",
+                fold_i + 1,
+                total,
+                np.mean(astar_f1s[-100:]),
+                rate,
+                (total - fold_i - 1) / rate,
+            )
 
     gpu_time = time.time() - t0
-    log.info("  GPU done: %d folds in %.0fs (%.1f folds/s)", total, gpu_time, total/gpu_time)
+    log.info("  GPU done: %d folds in %.0fs (%.1f folds/s)", total, gpu_time, total / gpu_time)
 
     del X_gpu, y_gpu
     cp.get_default_memory_pool().free_all_blocks()
@@ -280,11 +358,10 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5):
     log.info("  CPU baselines: %d folds x %d workers...", total, n_jobs)
 
     baseline_results = Parallel(n_jobs=n_jobs, backend="loky", verbose=0)(
-        delayed(run_sklearn_fold)(X, y, tr, te, fi)
-        for fi, (tr, te) in enumerate(splits)
+        delayed(run_sklearn_fold)(X, y, tr, te, fi) for fi, (tr, te) in enumerate(splits)
     )
     cpu_time = time.time() - t1
-    log.info("  CPU done: %.0fs (%.1f folds/s)", cpu_time, total/cpu_time)
+    log.info("  CPU done: %.0fs (%.1f folds/s)", cpu_time, total / cpu_time)
 
     # Phase 3: Stats
     astar_f1s = np.array(astar_f1s)
@@ -294,8 +371,10 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5):
         diffs = astar_f1s - bf1s
         t_stat, p_value = stats.ttest_1samp(diffs, 0)
         results[bname] = {
-            "mean": float(bf1s.mean()), "std": float(bf1s.std()),
-            "diff": float(diffs.mean()), "sigma": float(abs(t_stat)),
+            "mean": float(bf1s.mean()),
+            "std": float(bf1s.std()),
+            "diff": float(diffs.mean()),
+            "sigma": float(abs(t_stat)),
             "p": float(p_value),
             "dir": "A*>" if diffs.mean() > 0 else f"{bname}>",
         }
@@ -304,20 +383,33 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5):
     top = fc.most_common(1)[0]
 
     summary = {
-        "name": name, "N": int(X.shape[0]), "d": int(X.shape[1]),
+        "name": name,
+        "N": int(X.shape[0]),
+        "d": int(X.shape[1]),
         "n_folds": total,
-        "astar_mean": float(astar_f1s.mean()), "astar_std": float(astar_f1s.std()),
+        "astar_mean": float(astar_f1s.mean()),
+        "astar_std": float(astar_f1s.std()),
         "baselines": results,
-        "formula": top[0], "stability": float(top[1]/len(formulas)),
-        "gpu_time_s": float(gpu_time), "cpu_time_s": float(cpu_time),
+        "formula": top[0],
+        "stability": float(top[1] / len(formulas)),
+        "gpu_time_s": float(gpu_time),
+        "cpu_time_s": float(cpu_time),
     }
 
-    log.info("  FORMULA: %s (%.0f%% stable)", top[0][:60], 100*summary["stability"])
+    log.info("  FORMULA: %s (%.0f%% stable)", top[0][:60], 100 * summary["stability"])
     log.info("  A*:  %.4f +/- %.4f", summary["astar_mean"], summary["astar_std"])
     for bname in ["GB", "RF", "LR"]:
         b = results[bname]
-        log.info("  vs %-3s: %.4f +/- %.4f  diff=%+.4f  %.1fσ  p=%.2e  %s",
-                 bname, b["mean"], b["std"], b["diff"], b["sigma"], b["p"], b["dir"])
+        log.info(
+            "  vs %-3s: %.4f +/- %.4f  diff=%+.4f  %.1fσ  p=%.2e  %s",
+            bname,
+            b["mean"],
+            b["std"],
+            b["diff"],
+            b["sigma"],
+            b["p"],
+            b["dir"],
+        )
     return summary
 
 
@@ -328,8 +420,7 @@ def main():
     log.info("=" * 70)
 
     props = cp.cuda.runtime.getDeviceProperties(0)
-    log.info("GPU: %s (%.1f GB free)", props["name"].decode(),
-             cp.cuda.Device(0).mem_info[0] / 1e9)
+    log.info("GPU: %s (%.1f GB free)", props["name"].decode(), cp.cuda.Device(0).mem_info[0] / 1e9)
 
     # Warmup
     _ = cp.sort(cp.random.rand(10000, 100), axis=0)
@@ -387,15 +478,26 @@ def main():
     log.info("")
     log.info("=" * 90)
     log.info("FINAL SUMMARY — 200x5=1000 folds per dataset")
-    log.info("%-15s  %-8s  %-25s  %-8s  %-8s  %-8s",
-             "Dataset", "A* F1", "Formula", "vs GB σ", "vs RF σ", "vs LR σ")
+    log.info(
+        "%-15s  %-8s  %-25s  %-8s  %-8s  %-8s",
+        "Dataset",
+        "A* F1",
+        "Formula",
+        "vs GB σ",
+        "vs RF σ",
+        "vs LR σ",
+    )
     log.info("-" * 90)
     for r in all_results:
-        log.info("%-15s  %.4f   %-25s  %6.1fσ   %6.1fσ   %6.1fσ",
-                 r["name"], r["astar_mean"], r["formula"][:25],
-                 r["baselines"]["GB"]["sigma"],
-                 r["baselines"]["RF"]["sigma"],
-                 r["baselines"]["LR"]["sigma"])
+        log.info(
+            "%-15s  %.4f   %-25s  %6.1fσ   %6.1fσ   %6.1fσ",
+            r["name"],
+            r["astar_mean"],
+            r["formula"][:25],
+            r["baselines"]["GB"]["sigma"],
+            r["baselines"]["RF"]["sigma"],
+            r["baselines"]["LR"]["sigma"],
+        )
     log.info("=" * 90)
 
 

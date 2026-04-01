@@ -14,8 +14,7 @@ from __future__ import annotations
 import logging
 import numpy as np
 
-from tensor_3body.hamiltonian import hessian_analytical, jacobi_masses
-from tensor_3body.tensor_ops import effective_rank, singular_values
+from tensor_3body.hamiltonian import hessian_analytical
 from tensor_3body.sampling import config_to_phase_space_circular
 from tensor_3body.landscape import load_landscape
 
@@ -41,8 +40,9 @@ def main():
         if count > 0:
             log.info("  rank=%d: %d (%.4f%%)", r, count, 100 * count / N)
     log.info("  Total: %d", N)
-    log.info("  Sum of all rank counts: %d",
-             sum((data["eff_rank"] == r).sum() for r in range(1, 13)))
+    log.info(
+        "  Sum of all rank counts: %d", sum((data["eff_rank"] == r).sum() for r in range(1, 13))
+    )
 
     # ============================================================
     # FIX 2: Verify eigenvalue signs at rank 9
@@ -66,10 +66,12 @@ def main():
         expected_radial = 2 * m1 * m2 / r1**3
         expected_tangential = -m1 * m2 / r1**3
 
-        log.info("  r1=%.3f r2=%.3f: qq_eigs = %s",
-                 r1, r2, " ".join(f"{e:+.4f}" for e in qq_eigs))
-        log.info("    Expected (Kepler): radial=%+.4f, tangential=%+.4f (x2), zero (x3)",
-                 expected_radial, expected_tangential)
+        log.info("  r1=%.3f r2=%.3f: qq_eigs = %s", r1, r2, " ".join(f"{e:+.4f}" for e in qq_eigs))
+        log.info(
+            "    Expected (Kepler): radial=%+.4f, tangential=%+.4f (x2), zero (x3)",
+            expected_radial,
+            expected_tangential,
+        )
 
         # Check ratios among nonzero eigenvalues
         nonzero = qq_eigs[np.abs(qq_eigs) > 0.01 * np.abs(qq_eigs).max()]
@@ -89,9 +91,14 @@ def main():
         rank_counts = {}
         for idx in indices:
             z = config_to_phase_space_circular(
-                float(data["r1"][idx]), float(data["r2"][idx]),
-                float(data["theta"][idx]), float(data["phi"][idx]),
-                m1, m2, m3)
+                float(data["r1"][idx]),
+                float(data["r2"][idx]),
+                float(data["theta"][idx]),
+                float(data["phi"][idx]),
+                m1,
+                m2,
+                m3,
+            )
             H = hessian_analytical(z, m1, m2, m3)
             sv = np.linalg.svd(H, compute_uv=False)
             r = int(np.sum(sv / (sv[0] + 1e-30) > eps))
@@ -99,8 +106,14 @@ def main():
 
         rank_str = " ".join(f"r{k}:{v}" for k, v in sorted(rank_counts.items()))
         n_below_12 = sum(v for k, v in rank_counts.items() if k < 12)
-        log.info("  eps=%.0e: %s  (rank<12: %d/%d = %.1f%%)",
-                 eps, rank_str, n_below_12, sample_size, 100 * n_below_12 / sample_size)
+        log.info(
+            "  eps=%.0e: %s  (rank<12: %d/%d = %.1f%%)",
+            eps,
+            rank_str,
+            n_below_12,
+            sample_size,
+            100 * n_below_12 / sample_size,
+        )
 
     # ============================================================
     # FIX 4: Scale-normalized perturbation study
@@ -120,11 +133,16 @@ def main():
 
         for i in idx:
             z = config_to_phase_space_circular(
-                float(data["r1"][i]), float(data["r2"][i]),
-                float(data["theta"][i]), float(data["phi"][i]),
-                m1, m2, m3)
+                float(data["r1"][i]),
+                float(data["r2"][i]),
+                float(data["theta"][i]),
+                float(data["phi"][i]),
+                m1,
+                m2,
+                m3,
+            )
             H = hessian_analytical(z, m1, m2, m3)
-            H_norm = np.linalg.norm(H, 'fro')
+            H_norm = np.linalg.norm(H, "fro")
             hessian_norms.append(H_norm)
 
             eigs0 = np.sort(np.linalg.eigvalsh(H))
@@ -135,7 +153,7 @@ def main():
                 dH = rng.randn(12, 12)
                 dH = (dH + dH.T) / 2
                 # SCALE NORMALIZE: ||dH|| = 0.01 * ||H||
-                dH = dH / np.linalg.norm(dH, 'fro') * 0.01 * H_norm
+                dH = dH / np.linalg.norm(dH, "fro") * 0.01 * H_norm
 
                 eigs_pert = np.sort(np.linalg.eigvalsh(H + dH))
                 rel_change = np.linalg.norm(eigs_pert - eigs0) / (norm0 + 1e-30)
@@ -146,8 +164,13 @@ def main():
 
         mean_preserved = np.mean(n_preserved_list)
         mean_norm = np.mean(hessian_norms)
-        log.info("  rank=%d: preserved=%.1f/100, mean_||H||=%.2e (n=%d)",
-                 target_rank, mean_preserved, mean_norm, len(idx))
+        log.info(
+            "  rank=%d: preserved=%.1f/100, mean_||H||=%.2e (n=%d)",
+            target_rank,
+            mean_preserved,
+            mean_norm,
+            len(idx),
+        )
 
     # ============================================================
     # FIX 5: Baseline comparison — tensor rank vs separation ratio
@@ -180,8 +203,9 @@ def main():
             prec = tp / (tp + fp) if (tp + fp) > 0 else 0
             rec = tp / (tp + fn) if (tp + fn) > 0 else 0
             f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0
-            log.info("    rank<=%d: prec=%.1f%% rec=%.1f%% F1=%.3f",
-                     thresh, 100*prec, 100*rec, f1)
+            log.info(
+                "    rank<=%d: prec=%.1f%% rec=%.1f%% F1=%.3f", thresh, 100 * prec, 100 * rec, f1
+            )
 
     except FileNotFoundError:
         log.info("  Orbit data not found — run run_massive_orbits.py first")

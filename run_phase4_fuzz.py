@@ -26,14 +26,8 @@ import time
 import numpy as np
 
 from tensor_3body.hamiltonian import hessian_analytical
-from tensor_3body.tensor_ops import (
-    reshape_to_rank6,
-    effective_rank,
-    singular_values,
-    participation_ratio,
-)
 from tensor_3body.sampling import config_to_phase_space_circular
-from tensor_3body.integrator_gpu import integrate_batch, HAS_CUPY
+from tensor_3body.integrator_gpu import integrate_batch
 from tensor_3body.landscape import load_landscape
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -58,7 +52,9 @@ def get_perturbation_directions(z: np.ndarray, m1: float, m2: float, m3: float) 
 
 def fuzz_orbit_family(
     seed_z: np.ndarray,
-    m1: float, m2: float, m3: float,
+    m1: float,
+    m2: float,
+    m3: float,
     n_perturbations: int = 100,
     max_amplitude: float = 0.5,
     n_directions: int = 6,
@@ -95,8 +91,12 @@ def fuzz_orbit_family(
             meta.append({"dir": d_idx, "amp": -amp})
 
     z0 = np.array(z0_list)
-    log.info("  Fuzzing with %d perturbations (%d directions x %d amplitudes x 2 signs + seed)",
-             len(z0), n_directions, len(amplitudes))
+    log.info(
+        "  Fuzzing with %d perturbations (%d directions x %d amplitudes x 2 signs + seed)",
+        len(z0),
+        n_directions,
+        len(amplitudes),
+    )
 
     # GPU integration
     result = integrate_batch(z0, m1, m2, m3, dt=dt, n_steps=n_steps, gpu_id=gpu_id)
@@ -140,14 +140,14 @@ def fuzz_orbit_family(
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="Phase 4: Fuzz periodic orbits")
-    parser.add_argument("--landscape", type=str,
-                        default="results/phase1/landscape_equal_static.npz")
+    parser.add_argument(
+        "--landscape", type=str, default="results/phase1/landscape_equal_static.npz"
+    )
     parser.add_argument("--gpu", type=int, default=0)
-    parser.add_argument("--n-seeds", type=int, default=20,
-                        help="Number of seed orbits to fuzz")
-    parser.add_argument("--n-perturbations", type=int, default=200,
-                        help="Perturbations per seed")
+    parser.add_argument("--n-seeds", type=int, default=20, help="Number of seed orbits to fuzz")
+    parser.add_argument("--n-perturbations", type=int, default=200, help="Perturbations per seed")
     parser.add_argument("--max-amplitude", type=float, default=1.0)
     args = parser.parse_args()
 
@@ -174,7 +174,7 @@ def main():
     if len(indices) > args.n_seeds:
         # Pick diverse seeds (spread across the configuration space)
         step = len(indices) // args.n_seeds
-        indices = indices[::step][:args.n_seeds]
+        indices = indices[::step][: args.n_seeds]
 
     log.info("Selected %d seed orbits", len(indices))
 
@@ -191,11 +191,22 @@ def main():
 
         z_seed = config_to_phase_space_circular(r1, r2, theta, phi, m1, m2, m3)
 
-        log.info("\n[Seed %d/%d] r1=%.3f r2=%.3f th=%.3f phi=%.3f rank=%d",
-                 seed_i + 1, len(indices), r1, r2, theta, phi, rank)
+        log.info(
+            "\n[Seed %d/%d] r1=%.3f r2=%.3f th=%.3f phi=%.3f rank=%d",
+            seed_i + 1,
+            len(indices),
+            r1,
+            r2,
+            theta,
+            phi,
+            rank,
+        )
 
         result = fuzz_orbit_family(
-            z_seed, m1, m2, m3,
+            z_seed,
+            m1,
+            m2,
+            m3,
             n_perturbations=args.n_perturbations,
             max_amplitude=args.max_amplitude,
             gpu_id=args.gpu,
@@ -204,17 +215,24 @@ def main():
         result["seed"] = {"r1": r1, "r2": r2, "theta": theta, "phi": phi, "rank": rank}
         all_results.append(result)
 
-        log.info("  Result: %d/%d periodic (%.1f%%), %d collisions",
-                 result["n_periodic"], result["n_total"],
-                 100 * result["n_periodic"] / result["n_total"],
-                 result["n_collision"])
+        log.info(
+            "  Result: %d/%d periodic (%.1f%%), %d collisions",
+            result["n_periodic"],
+            result["n_total"],
+            100 * result["n_periodic"] / result["n_total"],
+            result["n_collision"],
+        )
         log.info("  Seed itself periodic: %s", result["seed_periodic"])
 
         for d_idx, ext in result["family_extent"].items():
             if ext["n_periodic"] > 0:
-                log.info("    dir %d: periodic to amp=%.4f (%d/%d)",
-                         d_idx, ext["max_periodic_amp"],
-                         ext["n_periodic"], ext["n_total"])
+                log.info(
+                    "    dir %d: periodic to amp=%.4f (%d/%d)",
+                    d_idx,
+                    ext["max_periodic_amp"],
+                    ext["n_periodic"],
+                    ext["n_total"],
+                )
 
     elapsed = time.time() - t0
     log.info("\n" + "=" * 70)
@@ -224,10 +242,13 @@ def main():
     # Summary
     total_periodic = sum(r["n_periodic"] for r in all_results)
     total_tested = sum(r["n_total"] for r in all_results)
-    log.info("Total: %d/%d periodic (%.1f%%) across %d seed families",
-             total_periodic, total_tested,
-             100 * total_periodic / total_tested if total_tested > 0 else 0,
-             len(all_results))
+    log.info(
+        "Total: %d/%d periodic (%.1f%%) across %d seed families",
+        total_periodic,
+        total_tested,
+        100 * total_periodic / total_tested if total_tested > 0 else 0,
+        len(all_results),
+    )
 
     # Find the widest family
     widest = None
@@ -241,8 +262,7 @@ def main():
     if widest:
         seed, d_idx, ext = widest
         log.info("\nWidest orbit family:")
-        log.info("  Seed: r1=%.3f r2=%.3f rank=%d",
-                 seed["r1"], seed["r2"], seed["rank"])
+        log.info("  Seed: r1=%.3f r2=%.3f rank=%d", seed["r1"], seed["r2"], seed["rank"])
         log.info("  Direction: %d, extends to amplitude %.4f", d_idx, ext["max_periodic_amp"])
         log.info("  %d/%d periodic along this direction", ext["n_periodic"], ext["n_total"])
 

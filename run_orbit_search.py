@@ -41,7 +41,10 @@ def _integrate_one(args: tuple) -> dict:
 
         return {
             "idx": idx,
-            "r1": r1, "r2": r2, "theta": theta, "phi": phi,
+            "r1": r1,
+            "r2": r2,
+            "theta": theta,
+            "phi": phi,
             "return_distance": result["return_distance"],
             "return_time": result["return_time"],
             "is_periodic": result["is_periodic"],
@@ -50,24 +53,29 @@ def _integrate_one(args: tuple) -> dict:
             "error": None,
         }
     except Exception as e:
-        return {"idx": idx, "r1": r1, "r2": r2, "theta": theta, "phi": phi,
-                "error": str(e)}
+        return {"idx": idx, "r1": r1, "r2": r2, "theta": theta, "phi": phi, "error": str(e)}
 
 
 def main():
     parser = argparse.ArgumentParser(description="Orbit search at low-rank configurations")
-    parser.add_argument("--landscape", type=str, required=True,
-                        help="Path to Phase 1 landscape NPZ file")
-    parser.add_argument("--max-rank", type=int, default=10,
-                        help="Search configs with rank <= this (default: 10)")
-    parser.add_argument("--max-configs", type=int, default=5000,
-                        help="Maximum configs to integrate (default: 5000)")
-    parser.add_argument("--dt", type=float, default=0.005,
-                        help="Integration timestep (default: 0.005)")
-    parser.add_argument("--n-steps", type=int, default=50000,
-                        help="Number of integration steps (default: 50000)")
-    parser.add_argument("--circular", action="store_true",
-                        help="Use circular orbit initial momenta")
+    parser.add_argument(
+        "--landscape", type=str, required=True, help="Path to Phase 1 landscape NPZ file"
+    )
+    parser.add_argument(
+        "--max-rank", type=int, default=10, help="Search configs with rank <= this (default: 10)"
+    )
+    parser.add_argument(
+        "--max-configs", type=int, default=5000, help="Maximum configs to integrate (default: 5000)"
+    )
+    parser.add_argument(
+        "--dt", type=float, default=0.005, help="Integration timestep (default: 0.005)"
+    )
+    parser.add_argument(
+        "--n-steps", type=int, default=50000, help="Number of integration steps (default: 50000)"
+    )
+    parser.add_argument(
+        "--circular", action="store_true", help="Use circular orbit initial momenta"
+    )
     parser.add_argument("--workers", type=int, default=None)
 
     args = parser.parse_args()
@@ -97,13 +105,30 @@ def main():
 
     # Build work items
     work = [
-        (i, data["r1"][idx], data["r2"][idx], data["theta"][idx], data["phi"][idx],
-         m1, m2, m3, args.circular, args.dt, args.n_steps)
+        (
+            i,
+            data["r1"][idx],
+            data["r2"][idx],
+            data["theta"][idx],
+            data["phi"][idx],
+            m1,
+            m2,
+            m3,
+            args.circular,
+            args.dt,
+            args.n_steps,
+        )
         for i, idx in enumerate(indices)
     ]
 
-    log.info("Integrating %d configurations (dt=%.4f, steps=%d, T=%.1f) with %d workers...",
-             len(work), args.dt, args.n_steps, args.dt * args.n_steps, n_workers)
+    log.info(
+        "Integrating %d configurations (dt=%.4f, steps=%d, T=%.1f) with %d workers...",
+        len(work),
+        args.dt,
+        args.n_steps,
+        args.dt * args.n_steps,
+        n_workers,
+    )
 
     t0 = time.time()
     if n_workers <= 1:
@@ -122,24 +147,42 @@ def main():
     valid = [r for r in results if not r.get("error") and not r.get("collision")]
 
     log.info("Results: %d valid, %d collisions, %d errors", len(valid), n_collision, n_errors)
-    log.info("PERIODIC ORBITS FOUND: %d / %d (%.2f%%)",
-             n_periodic, len(valid), 100 * n_periodic / len(valid) if valid else 0)
+    log.info(
+        "PERIODIC ORBITS FOUND: %d / %d (%.2f%%)",
+        n_periodic,
+        len(valid),
+        100 * n_periodic / len(valid) if valid else 0,
+    )
 
     if valid:
         return_dists = [r["return_distance"] for r in valid]
         energy_errors = [r["energy_error"] for r in valid]
-        log.info("Return distance: min=%.4f, mean=%.4f, median=%.4f",
-                 min(return_dists), np.mean(return_dists), np.median(return_dists))
-        log.info("Energy conservation: mean error=%.2e, max=%.2e",
-                 np.mean(energy_errors), max(energy_errors))
+        log.info(
+            "Return distance: min=%.4f, mean=%.4f, median=%.4f",
+            min(return_dists),
+            np.mean(return_dists),
+            np.median(return_dists),
+        )
+        log.info(
+            "Energy conservation: mean error=%.2e, max=%.2e",
+            np.mean(energy_errors),
+            max(energy_errors),
+        )
 
     # Show best candidates (closest returns)
     valid.sort(key=lambda r: r["return_distance"])
     log.info("\nTop 10 closest returns:")
     for r in valid[:10]:
-        log.info("  r1=%.3f r2=%.3f th=%.3f phi=%.3f  return_dist=%.4f  t_return=%.1f  periodic=%s",
-                 r["r1"], r["r2"], r["theta"], r["phi"],
-                 r["return_distance"], r["return_time"], r["is_periodic"])
+        log.info(
+            "  r1=%.3f r2=%.3f th=%.3f phi=%.3f  return_dist=%.4f  t_return=%.1f  periodic=%s",
+            r["r1"],
+            r["r2"],
+            r["theta"],
+            r["phi"],
+            r["return_distance"],
+            r["return_time"],
+            r["is_periodic"],
+        )
 
     # Save results
     out_path = Path(args.landscape).parent / "orbit_search_results.npz"

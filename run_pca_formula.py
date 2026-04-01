@@ -16,6 +16,7 @@ Fair test evaluation: PCA fit on train, transform test, replay formula.
 """
 
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import cupy as cp
@@ -27,7 +28,7 @@ from collections import Counter
 from scipy import stats
 from joblib import Parallel, delayed
 
-from sklearn.datasets import load_breast_cancer, load_wine, fetch_openml
+from sklearn.datasets import load_breast_cancer, fetch_openml
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.model_selection import RepeatedStratifiedKFold
@@ -40,12 +41,14 @@ log = logging.getLogger()
 
 # ─── GPU ops (same core) ──────────────────────────────────────────
 
+
 def gpu_batch_f1(vals, labels):
     N, K = vals.shape
     pos = labels.sum()
     if float(pos) == 0 or float(pos) == N:
         return cp.zeros(K, dtype=cp.float64)
     return cp.maximum(_sweep(vals, labels, pos), _sweep(-vals, labels, pos))
+
 
 def _sweep(vals, labels, pos):
     N, K = vals.shape
@@ -60,71 +63,102 @@ def _sweep(vals, labels, pos):
     valid[:-1, :] = (sv[:-1, :] - sv[1:, :]) > 1e-15
     return cp.max(cp.where(valid, f1, 0.0), axis=0)
 
+
 VBINARY = [
-    ("+", lambda B,F: B+F), ("-", lambda B,F: B-F),
-    ("*", lambda B,F: B*F), ("/", lambda B,F: B/(F+1e-30)),
-    ("max", lambda B,F: cp.maximum(B,F)), ("min", lambda B,F: cp.minimum(B,F)),
-    ("hypot", lambda B,F: cp.sqrt(B**2+F**2)),
-    ("diff_sq", lambda B,F: (B-F)**2),
-    ("harmonic", lambda B,F: 2*B*F/(B+F+1e-30)),
-    ("geometric", lambda B,F: cp.sign(B*F)*cp.sqrt(cp.abs(B*F))),
+    ("+", lambda B, F: B + F),
+    ("-", lambda B, F: B - F),
+    ("*", lambda B, F: B * F),
+    ("/", lambda B, F: B / (F + 1e-30)),
+    ("max", lambda B, F: cp.maximum(B, F)),
+    ("min", lambda B, F: cp.minimum(B, F)),
+    ("hypot", lambda B, F: cp.sqrt(B**2 + F**2)),
+    ("diff_sq", lambda B, F: (B - F) ** 2),
+    ("harmonic", lambda B, F: 2 * B * F / (B + F + 1e-30)),
+    ("geometric", lambda B, F: cp.sign(B * F) * cp.sqrt(cp.abs(B * F))),
 ]
 VUNARY = [
-    ("log", lambda V: cp.log(cp.abs(V)+1e-30)),
+    ("log", lambda V: cp.log(cp.abs(V) + 1e-30)),
     ("sqrt", lambda V: cp.sqrt(cp.abs(V))),
-    ("sq", lambda V: V**2), ("abs", lambda V: cp.abs(V)),
-    ("sigmoid", lambda V: 1.0/(1.0+cp.exp(-cp.clip(V,-500,500)))),
-    ("tanh", lambda V: cp.tanh(cp.clip(V,-500,500))),
+    ("sq", lambda V: V**2),
+    ("abs", lambda V: cp.abs(V)),
+    ("sigmoid", lambda V: 1.0 / (1.0 + cp.exp(-cp.clip(V, -500, 500)))),
+    ("tanh", lambda V: cp.tanh(cp.clip(V, -500, 500))),
 ]
 SCALAR_BIN = {
-    "+": lambda a,b: a+b, "-": lambda a,b: a-b,
-    "*": lambda a,b: a*b, "/": lambda a,b: a/(b+1e-30),
-    "max": lambda a,b: np.maximum(a,b), "min": lambda a,b: np.minimum(a,b),
-    "hypot": lambda a,b: np.sqrt(a**2+b**2), "diff_sq": lambda a,b: (a-b)**2,
-    "harmonic": lambda a,b: 2*a*b/(a+b+1e-30),
-    "geometric": lambda a,b: np.sign(a*b)*np.sqrt(np.abs(a*b)),
+    "+": lambda a, b: a + b,
+    "-": lambda a, b: a - b,
+    "*": lambda a, b: a * b,
+    "/": lambda a, b: a / (b + 1e-30),
+    "max": lambda a, b: np.maximum(a, b),
+    "min": lambda a, b: np.minimum(a, b),
+    "hypot": lambda a, b: np.sqrt(a**2 + b**2),
+    "diff_sq": lambda a, b: (a - b) ** 2,
+    "harmonic": lambda a, b: 2 * a * b / (a + b + 1e-30),
+    "geometric": lambda a, b: np.sign(a * b) * np.sqrt(np.abs(a * b)),
 }
 SCALAR_UN = {
-    "log": lambda x: np.log(np.abs(x)+1e-30),
+    "log": lambda x: np.log(np.abs(x) + 1e-30),
     "sqrt": lambda x: np.sqrt(np.abs(x)),
-    "sq": lambda x: x**2, "abs": lambda x: np.abs(x),
-    "sigmoid": lambda x: 1.0/(1.0+np.exp(-np.clip(x,-500,500))),
-    "tanh": lambda x: np.tanh(np.clip(x,-500,500)),
+    "sq": lambda x: x**2,
+    "abs": lambda x: np.abs(x),
+    "sigmoid": lambda x: 1.0 / (1.0 + np.exp(-np.clip(x, -500, 500))),
+    "tanh": lambda x: np.tanh(np.clip(x, -500, 500)),
 }
 
 
 class FormulaTrace:
     """Records operations. Feature indices refer to the augmented feature matrix."""
+
     def __init__(self, fi):
         self.ops = [("leaf", fi)]
+
     def binary(self, op, fi):
-        t = FormulaTrace.__new__(FormulaTrace); t.ops = self.ops+[("binary",op,fi)]; return t
+        t = FormulaTrace.__new__(FormulaTrace)
+        t.ops = self.ops + [("binary", op, fi)]
+        return t
+
     def unary(self, op):
-        t = FormulaTrace.__new__(FormulaTrace); t.ops = self.ops+[("unary",op)]; return t
+        t = FormulaTrace.__new__(FormulaTrace)
+        t.ops = self.ops + [("unary", op)]
+        return t
+
     def evaluate(self, X):
         v = None
         for s in self.ops:
-            if s[0]=="leaf": v = X[:,s[1]].copy()
-            elif s[0]=="binary": v=SCALAR_BIN[s[1]](v,X[:,s[2]]); v=np.nan_to_num(v,nan=0.,posinf=1e10,neginf=-1e10)
-            elif s[0]=="unary": v=SCALAR_UN[s[1]](v); v=np.nan_to_num(v,nan=0.,posinf=1e10,neginf=-1e10)
+            if s[0] == "leaf":
+                v = X[:, s[1]].copy()
+            elif s[0] == "binary":
+                v = SCALAR_BIN[s[1]](v, X[:, s[2]])
+                v = np.nan_to_num(v, nan=0.0, posinf=1e10, neginf=-1e10)
+            elif s[0] == "unary":
+                v = SCALAR_UN[s[1]](v)
+                v = np.nan_to_num(v, nan=0.0, posinf=1e10, neginf=-1e10)
         return v
 
 
 def find_optimal_threshold(vals, y):
-    best_f1, best_t, best_d = 0., 0., 1
-    P = int(y.astype(bool).sum()); N = len(y)
-    if P==0 or P==N: return 0., 1, 0.
-    for d in [1,-1]:
-        o = np.argsort(d*vals)[::-1]; sv=(d*vals)[o]; sa=y.astype(bool)[o]
-        tp=fp=0
+    best_f1, best_t, best_d = 0.0, 0.0, 1
+    P = int(y.astype(bool).sum())
+    N = len(y)
+    if P == 0 or P == N:
+        return 0.0, 1, 0.0
+    for d in [1, -1]:
+        o = np.argsort(d * vals)[::-1]
+        sv = (d * vals)[o]
+        sa = y.astype(bool)[o]
+        tp = fp = 0
         for i in range(N):
-            if sa[i]: tp+=1
-            else: fp+=1
-            if tp+fp>0:
-                p=tp/(tp+fp); r=tp/P
-                if p+r>0:
-                    f=2*p*r/(p+r)
-                    if f>best_f1: best_f1,best_t,best_d=f,sv[i],d
+            if sa[i]:
+                tp += 1
+            else:
+                fp += 1
+            if tp + fp > 0:
+                p = tp / (tp + fp)
+                r = tp / P
+                if p + r > 0:
+                    f = 2 * p * r / (p + r)
+                    if f > best_f1:
+                        best_f1, best_t, best_d = f, sv[i], d
     return best_t, best_d, best_f1
 
 
@@ -157,25 +191,29 @@ def gpu_beam_search(X_gpu, y_gpu, feat_names, max_depth=3, beam_width=100):
         for opname, opfn in VBINARY:
             try:
                 out = opfn(bv3, fv3).reshape(N, B_cur * d)
-                out = cp.nan_to_num(out, nan=0., posinf=1e10, neginf=-1e10)
+                out = cp.nan_to_num(out, nan=0.0, posinf=1e10, neginf=-1e10)
                 chunks.append(out)
                 names, traces = [], []
                 for bi in range(B_cur):
                     for fi in range(d):
                         names.append(f"({beam_names[bi]} {opname} {feat_names[fi]})")
                         traces.append(beam_traces[bi].binary(opname, fi))
-                name_chunks.append(names); trace_chunks.append(traces)
-            except: pass
+                name_chunks.append(names)
+                trace_chunks.append(traces)
+            except:
+                pass
         for opname, opfn in VUNARY:
             try:
                 out = opfn(beam_vals)
-                out = cp.nan_to_num(out, nan=0., posinf=1e10, neginf=-1e10)
+                out = cp.nan_to_num(out, nan=0.0, posinf=1e10, neginf=-1e10)
                 chunks.append(out)
                 name_chunks.append([f"{opname}({beam_names[bi]})" for bi in range(B_cur)])
                 trace_chunks.append([beam_traces[bi].unary(opname) for bi in range(B_cur)])
-            except: pass
+            except:
+                pass
 
-        if not chunks: break
+        if not chunks:
+            break
         all_vals = cp.concatenate(chunks, axis=1)
         all_names = [n for nc in name_chunks for n in nc]
         all_traces = [t for tc in trace_chunks for t in tc]
@@ -199,7 +237,8 @@ def gpu_beam_search(X_gpu, y_gpu, feat_names, max_depth=3, beam_width=100):
                 best_name = all_names[i]
                 best_trace = all_traces[i]
 
-        del all_vals, chunks; cp.get_default_memory_pool().free_all_blocks()
+        del all_vals, chunks
+        cp.get_default_memory_pool().free_all_blocks()
 
     return best_f1, best_name, best_trace
 
@@ -207,8 +246,8 @@ def gpu_beam_search(X_gpu, y_gpu, feat_names, max_depth=3, beam_width=100):
 def run_sklearn_fold(X, y, tr, te, fi):
     out = {}
     for nm, clf in [
-        ("GB", GradientBoostingClassifier(n_estimators=100, max_depth=4, random_state=42+fi)),
-        ("RF", RandomForestClassifier(n_estimators=100, random_state=42+fi)),
+        ("GB", GradientBoostingClassifier(n_estimators=100, max_depth=4, random_state=42 + fi)),
+        ("RF", RandomForestClassifier(n_estimators=100, random_state=42 + fi)),
         ("LR", LogisticRegression(max_iter=1000, random_state=42)),
     ]:
         clf.fit(X[tr], y[tr])
@@ -218,13 +257,22 @@ def run_sklearn_fold(X, y, tr, te, fi):
 
 # ─── PCA + Formula Search Pipeline ────────────────────────────────
 
-def run_dataset(name, X, y, raw_feat_names, n_repeats=200, n_folds=5,
-                n_pca=8, max_depth=3, beam_width=100):
+
+def run_dataset(
+    name, X, y, raw_feat_names, n_repeats=200, n_folds=5, n_pca=8, max_depth=3, beam_width=100
+):
     total = n_repeats * n_folds
     d = X.shape[1]
     log.info("=" * 70)
-    log.info("PCA+FORMULA: %s (N=%d, d=%d) — %d folds, %d PCs, depth=%d",
-             name, X.shape[0], d, total, n_pca, max_depth)
+    log.info(
+        "PCA+FORMULA: %s (N=%d, d=%d) — %d folds, %d PCs, depth=%d",
+        name,
+        X.shape[0],
+        d,
+        total,
+        n_pca,
+        max_depth,
+    )
     log.info("=" * 70)
 
     cv = RepeatedStratifiedKFold(n_splits=n_folds, n_repeats=n_repeats, random_state=42)
@@ -274,8 +322,8 @@ def run_dataset(name, X, y, raw_feat_names, n_repeats=200, n_folds=5,
             y_gpu = cp.asarray(y[tr], dtype=cp.float64)
 
             train_f1, formula_name, trace = gpu_beam_search(
-                X_gpu, y_gpu, aug_names,
-                max_depth=max_depth, beam_width=beam_width)
+                X_gpu, y_gpu, aug_names, max_depth=max_depth, beam_width=beam_width
+            )
 
             astar_train_f1s.append(train_f1)
             formulas.append(formula_name)
@@ -293,40 +341,60 @@ def run_dataset(name, X, y, raw_feat_names, n_repeats=200, n_folds=5,
             if (fold_i + 1) % 100 == 0:
                 elapsed = time.time() - t0
                 rate = (fold_i + 1) / elapsed
-                log.info("  [%s] %d/%d  train=%.3f test=%.3f  %.1f/s",
-                         mode_name, fold_i+1, total,
-                         np.mean(astar_train_f1s[-100:]),
-                         np.mean(astar_f1s[-100:]), rate)
+                log.info(
+                    "  [%s] %d/%d  train=%.3f test=%.3f  %.1f/s",
+                    mode_name,
+                    fold_i + 1,
+                    total,
+                    np.mean(astar_train_f1s[-100:]),
+                    np.mean(astar_f1s[-100:]),
+                    rate,
+                )
 
         gpu_time = time.time() - t0
         astar_f1s = np.array(astar_f1s)
         astar_train_f1s = np.array(astar_train_f1s)
 
-        fc = Counter(formulas); top = fc.most_common(1)[0]
-        log.info("  [%s] TRAIN=%.4f TEST=%.4f gap=%.4f formula=%s (%.0f%%)",
-                 mode_name, astar_train_f1s.mean(), astar_f1s.mean(),
-                 astar_train_f1s.mean() - astar_f1s.mean(),
-                 top[0][:40], 100*top[1]/len(formulas))
+        fc = Counter(formulas)
+        top = fc.most_common(1)[0]
+        log.info(
+            "  [%s] TRAIN=%.4f TEST=%.4f gap=%.4f formula=%s (%.0f%%)",
+            mode_name,
+            astar_train_f1s.mean(),
+            astar_f1s.mean(),
+            astar_train_f1s.mean() - astar_f1s.mean(),
+            top[0][:40],
+            100 * top[1] / len(formulas),
+        )
 
         all_mode_results[mode_name] = {
             "test_f1s": astar_f1s,
             "train_mean": float(astar_train_f1s.mean()),
             "test_mean": float(astar_f1s.mean()),
             "formula": top[0],
-            "stability": float(top[1]/len(formulas)),
+            "stability": float(top[1] / len(formulas)),
         }
 
     # CPU baselines (same for all modes)
     t1 = time.time()
     n_jobs = min(os.cpu_count() or 1, 20)
     baselines = Parallel(n_jobs=n_jobs, backend="loky", verbose=0)(
-        delayed(run_sklearn_fold)(X, y, tr, te, fi) for fi, (tr, te) in enumerate(splits))
+        delayed(run_sklearn_fold)(X, y, tr, te, fi) for fi, (tr, te) in enumerate(splits)
+    )
     cpu_time = time.time() - t1
 
     # Compare each mode vs baselines
     log.info("")
-    log.info("  %-10s  %-8s  %-8s  %-30s  %-12s %-12s %-12s",
-             "Mode", "TrainF1", "TestF1", "Formula", "vs GB", "vs RF", "vs LR")
+    log.info(
+        "  %-10s  %-8s  %-8s  %-30s  %-12s %-12s %-12s",
+        "Mode",
+        "TrainF1",
+        "TestF1",
+        "Formula",
+        "vs GB",
+        "vs RF",
+        "vs LR",
+    )
     log.info("  " + "-" * 100)
 
     results = {}
@@ -337,19 +405,34 @@ def run_dataset(name, X, y, raw_feat_names, n_repeats=200, n_folds=5,
             diff = mr["test_f1s"] - bf
             t_stat, p_val = stats.ttest_1samp(diff, 0)
             mode_results[bn] = {
-                "mean": float(bf.mean()), "diff": float(diff.mean()),
+                "mean": float(bf.mean()),
+                "diff": float(diff.mean()),
                 "sigma": float(abs(t_stat)),
                 "dir": "A*>" if diff.mean() > 0 else f"{bn}>",
             }
 
-        log.info("  %-10s  %.4f   %.4f   %-30s  %.1f%s %s  %.1f%s %s  %.1f%s %s",
-                 mode_name, mr["train_mean"], mr["test_mean"], mr["formula"][:30],
-                 mode_results["GB"]["sigma"], "s", mode_results["GB"]["dir"],
-                 mode_results["RF"]["sigma"], "s", mode_results["RF"]["dir"],
-                 mode_results["LR"]["sigma"], "s", mode_results["LR"]["dir"])
+        log.info(
+            "  %-10s  %.4f   %.4f   %-30s  %.1f%s %s  %.1f%s %s  %.1f%s %s",
+            mode_name,
+            mr["train_mean"],
+            mr["test_mean"],
+            mr["formula"][:30],
+            mode_results["GB"]["sigma"],
+            "s",
+            mode_results["GB"]["dir"],
+            mode_results["RF"]["sigma"],
+            "s",
+            mode_results["RF"]["dir"],
+            mode_results["LR"]["sigma"],
+            "s",
+            mode_results["LR"]["dir"],
+        )
 
-        results[mode_name] = {"test_f1": mr["test_mean"], "formula": mr["formula"],
-                              "baselines": mode_results}
+        results[mode_name] = {
+            "test_f1": mr["test_mean"],
+            "formula": mr["formula"],
+            "baselines": mode_results,
+        }
 
     return results
 
@@ -358,9 +441,9 @@ def main():
     log.info("PCA + FORMULA SEARCH: Using ALL features via projections")
 
     props = cp.cuda.runtime.getDeviceProperties(0)
-    log.info("GPU: %s (%.1f GB free)", props["name"].decode(),
-             cp.cuda.Device(0).mem_info[0] / 1e9)
-    _ = cp.sort(cp.random.rand(10000, 100), axis=0); cp.cuda.Stream.null.synchronize()
+    log.info("GPU: %s (%.1f GB free)", props["name"].decode(), cp.cuda.Device(0).mem_info[0] / 1e9)
+    _ = cp.sort(cp.random.rand(10000, 100), axis=0)
+    cp.cuda.Stream.null.synchronize()
 
     datasets = []
 
@@ -389,8 +472,9 @@ def main():
     all_results = {}
     for name, X, y, feats in datasets:
         n_pca = min(8, X.shape[1])
-        r = run_dataset(name, X, y, feats, n_repeats=200, n_folds=5,
-                        n_pca=n_pca, max_depth=3, beam_width=100)
+        r = run_dataset(
+            name, X, y, feats, n_repeats=200, n_folds=5, n_pca=n_pca, max_depth=3, beam_width=100
+        )
         all_results[name] = r
 
     with open("pca_formula_results.json", "w") as f:

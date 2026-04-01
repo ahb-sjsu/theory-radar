@@ -58,9 +58,14 @@ def _analyze_one(args):
         freqs = characteristic_frequencies(H)
         freq_rat = frequency_ratio(freqs)
         return {
-            "idx": idx, "r1": r1, "r2": r2, "rank": eff_rank,
-            "gamma": gamma, "freq_ratio": freq_rat,
-            "freqs": freqs, "error": None,
+            "idx": idx,
+            "r1": r1,
+            "r2": r2,
+            "rank": eff_rank,
+            "gamma": gamma,
+            "freq_ratio": freq_rat,
+            "freqs": freqs,
+            "error": None,
         }
     except Exception as e:
         return {"idx": idx, "error": str(e)}
@@ -83,12 +88,19 @@ def main():
         if len(indices) > N_per_rank:
             indices = np.random.choice(indices, size=N_per_rank, replace=False)
         for idx in indices:
-            work.append((
-                len(work),
-                float(data["r1"][idx]), float(data["r2"][idx]),
-                float(data["theta"][idx]), float(data["phi"][idx]),
-                m1, m2, m3, int(data["eff_rank"][idx]),
-            ))
+            work.append(
+                (
+                    len(work),
+                    float(data["r1"][idx]),
+                    float(data["r2"][idx]),
+                    float(data["theta"][idx]),
+                    float(data["phi"][idx]),
+                    m1,
+                    m2,
+                    m3,
+                    int(data["eff_rank"][idx]),
+                )
+            )
 
     log.info("Analyzing %d configurations across ranks 7-12", len(work))
 
@@ -100,7 +112,9 @@ def main():
     log.info("Valid: %d/%d", len(valid), len(results))
 
     # Group by rank and compute statistics
-    log.info("\n%-6s  %-8s  %-12s  %-12s  %-8s", "Rank", "N", "γ (mean±std)", "ω_ratio (mean)", "PR")
+    log.info(
+        "\n%-6s  %-8s  %-12s  %-12s  %-8s", "Rank", "N", "γ (mean±std)", "ω_ratio (mean)", "PR"
+    )
 
     for rank in range(7, 13):
         subset = [r for r in valid if r["rank"] == rank]
@@ -108,10 +122,14 @@ def main():
             continue
         gammas = [r["gamma"] for r in subset]
         ratios = [r["freq_ratio"] for r in subset]
-        log.info("%-6d  %-8d  %.4f±%.4f  %-12.1f  -",
-                 rank, len(subset),
-                 np.mean(gammas), np.std(gammas),
-                 np.mean(ratios))
+        log.info(
+            "%-6d  %-8d  %.4f±%.4f  %-12.1f  -",
+            rank,
+            len(subset),
+            np.mean(gammas),
+            np.std(gammas),
+            np.mean(ratios),
+        )
 
     # Correlation: γ vs rank
     all_gammas = np.array([r["gamma"] for r in valid])
@@ -147,9 +165,13 @@ def main():
         subset = [r for r in valid if r["rank"] == rank]
         if subset:
             ex = subset[0]
-            log.info("  rank=%d (r1=%.2f, r2=%.2f): ω = %s",
-                     rank, ex["r1"], ex["r2"],
-                     " ".join(f"{f:.3f}" for f in ex["freqs"]))
+            log.info(
+                "  rank=%d (r1=%.2f, r2=%.2f): ω = %s",
+                rank,
+                ex["r1"],
+                ex["r2"],
+                " ".join(f"{f:.3f}" for f in ex["freqs"]),
+            )
 
 
 if __name__ == "__main__":

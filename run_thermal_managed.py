@@ -10,7 +10,10 @@ dynamically adjust how many dataset jobs run concurrently.
 - If over target, waits for a job to finish before launching next
 """
 
-import os, sys, subprocess, time, logging
+import os
+import subprocess
+import time
+import logging
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -20,7 +23,7 @@ log = logging.getLogger()
 from batch_probe._thermal import _read_cpu_temp
 
 TARGET_TEMP = 85.0  # max acceptable CPU temp
-SETTLE_TIME = 15     # seconds to wait after launch before checking temp
+SETTLE_TIME = 15  # seconds to wait after launch before checking temp
 
 DATASETS = [
     # (name, args for run_one.py)
@@ -43,8 +46,8 @@ def main():
     t0 = _read_cpu_temp()
     log.info("Baseline CPU temp: %.1f°C", t0)
 
-    active = {}   # name -> Popen
-    finished = {} # name -> result file
+    active = {}  # name -> Popen
+    finished = {}  # name -> result file
     queue = list(DATASETS)
 
     while queue or active:
@@ -67,8 +70,7 @@ def main():
             if temp < TARGET_TEMP and len(active) < 4:
                 name, args = queue.pop(0)
                 short = name.lower()[:4]
-                log.info("  LAUNCH: %s (temp=%.1f°C, %d active)",
-                         name, temp, len(active))
+                log.info("  LAUNCH: %s (temp=%.1f°C, %d active)", name, temp, len(active))
 
                 proc = subprocess.Popen(
                     ["python", "run_one.py"] + args.split(),
@@ -87,8 +89,12 @@ def main():
                     log.info("  Too hot — pausing launches")
             else:
                 if temp >= TARGET_TEMP:
-                    log.info("  WAITING: %.1f°C > %.1f°C target, %d active",
-                             temp, TARGET_TEMP, len(active))
+                    log.info(
+                        "  WAITING: %.1f°C > %.1f°C target, %d active",
+                        temp,
+                        TARGET_TEMP,
+                        len(active),
+                    )
                 time.sleep(10)
         else:
             # Queue empty, wait for remaining jobs
@@ -97,9 +103,14 @@ def main():
         # Status every 30s
         if int(time.time()) % 30 < 2:
             temp = _read_cpu_temp() or 0
-            log.info("  STATUS: %.1f°C, %d active [%s], %d queued, %d done",
-                     temp, len(active), ",".join(active.keys()),
-                     len(queue), len(finished))
+            log.info(
+                "  STATUS: %.1f°C, %d active [%s], %d queued, %d done",
+                temp,
+                len(active),
+                ",".join(active.keys()),
+                len(queue),
+                len(finished),
+            )
 
     log.info("ALL DONE: %d datasets", len(finished))
     for name, path in finished.items():

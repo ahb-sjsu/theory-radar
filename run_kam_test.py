@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import numpy as np
 
-from tensor_3body.hamiltonian import hessian_analytical, jacobi_masses
+from tensor_3body.hamiltonian import hessian_analytical
 from tensor_3body.tensor_ops import effective_rank
 from tensor_3body.sampling import config_to_phase_space_circular
 from tensor_3body.integrator_gpu import integrate_batch
@@ -95,8 +95,12 @@ def main():
 
     z0_list = []
     features = {
-        "rank": [], "delta": [], "gamma": [], "kam_radius": [],
-        "freq_ratio": [], "n_clusters": [],
+        "rank": [],
+        "delta": [],
+        "gamma": [],
+        "kam_radius": [],
+        "freq_ratio": [],
+        "n_clusters": [],
     }
 
     for i in range(N):
@@ -117,7 +121,7 @@ def main():
         # Cluster count
         n_cl = 1
         for k in range(len(pos_freqs) - 1):
-            if pos_freqs[k] / (pos_freqs[k+1] + 1e-30) > 10:
+            if pos_freqs[k] / (pos_freqs[k + 1] + 1e-30) > 10:
                 n_cl += 1
 
         features["rank"].append(effective_rank(H))
@@ -139,8 +143,12 @@ def main():
     valid = ~result["collision"]
     periodic = result["is_periodic"] & valid
     n_periodic = periodic.sum()
-    log.info("Ground truth: %d/%d periodic (%.2f%%)",
-             n_periodic, valid.sum(), 100 * n_periodic / valid.sum())
+    log.info(
+        "Ground truth: %d/%d periodic (%.2f%%)",
+        n_periodic,
+        valid.sum(),
+        100 * n_periodic / valid.sum(),
+    )
 
     # Test each predictor
     log.info("\n" + "=" * 70)
@@ -155,7 +163,8 @@ def main():
         "kam_radius > 50": features["kam_radius"][valid] > 50,
         "kam_radius > 100": features["kam_radius"][valid] > 100,
         "clusters >= 2": features["n_clusters"][valid] >= 2,
-        "delta > 50 AND gamma > 0.05": (features["delta"][valid] > 50) & (features["gamma"][valid] > 0.05),
+        "delta > 50 AND gamma > 0.05": (features["delta"][valid] > 50)
+        & (features["gamma"][valid] > 0.05),
     }
 
     actual = periodic[valid]
@@ -168,8 +177,9 @@ def main():
         prec = tp / (tp + fp) if (tp + fp) > 0 else 0
         rec = tp / (tp + fn) if (tp + fn) > 0 else 0
         f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0
-        log.info("%-35s  %5.1f%% %5.1f%% %5.1f%% %6d",
-                 name, 100*prec, 100*rec, 100*f1, pred.sum())
+        log.info(
+            "%-35s  %5.1f%% %5.1f%% %5.1f%% %6d", name, 100 * prec, 100 * rec, 100 * f1, pred.sum()
+        )
 
     # Correlation analysis
     log.info("\n--- Correlations with periodicity ---")
@@ -184,9 +194,18 @@ def main():
         finite = np.isfinite(vals)
         if finite.sum() > 100:
             corr = np.corrcoef(vals[finite], actual_float[finite])[0, 1]
-            log.info("  %-20s vs periodic: r = %+.4f %s",
-                     name, corr,
-                     "***" if abs(corr) > 0.15 else "**" if abs(corr) > 0.1 else "*" if abs(corr) > 0.05 else "")
+            log.info(
+                "  %-20s vs periodic: r = %+.4f %s",
+                name,
+                corr,
+                "***"
+                if abs(corr) > 0.15
+                else "**"
+                if abs(corr) > 0.1
+                else "*"
+                if abs(corr) > 0.05
+                else "",
+            )
 
     # THE KEY TEST: does kam_radius predict better than delta or gamma alone?
     log.info("\n" + "=" * 70)
@@ -196,16 +215,22 @@ def main():
 
     # Sweep thresholds for each predictor and find best F1
     best_f1 = {}
-    for name, vals in [("delta", features["delta"][valid]),
-                        ("gamma", features["gamma"][valid]),
-                        ("kam_radius", features["kam_radius"][valid])]:
+    for name, vals in [
+        ("delta", features["delta"][valid]),
+        ("gamma", features["gamma"][valid]),
+        ("kam_radius", features["kam_radius"][valid]),
+    ]:
         best = 0
         best_thresh = 0
         finite_vals = vals[np.isfinite(vals)]
         if len(finite_vals) == 0:
             continue
         for pct in [50, 60, 70, 75, 80, 85, 90, 95]:
-            thresh = np.percentile(finite_vals[finite_vals > 0], pct) if (finite_vals > 0).sum() > 0 else 0
+            thresh = (
+                np.percentile(finite_vals[finite_vals > 0], pct)
+                if (finite_vals > 0).sum() > 0
+                else 0
+            )
             if thresh == 0:
                 continue
             pred = vals > thresh
@@ -226,21 +251,34 @@ def main():
         delta_f1 = best_f1["delta"][0]
         gamma_f1 = best_f1["gamma"][0]
         if kam_f1 > max(delta_f1, gamma_f1):
-            log.info("\n  CONFIRMED: kam_radius (F1=%.3f) > delta (%.3f) and gamma (%.3f)",
-                     kam_f1, delta_f1, gamma_f1)
+            log.info(
+                "\n  CONFIRMED: kam_radius (F1=%.3f) > delta (%.3f) and gamma (%.3f)",
+                kam_f1,
+                delta_f1,
+                gamma_f1,
+            )
             log.info("  The product gamma*delta is a BETTER predictor than either factor alone.")
             log.info("  This supports the proof chain:")
             log.info("    Keplerian eigenvalues -> Davis-Kahan rigidity -> KAM persistence")
         else:
-            log.info("\n  NOT CONFIRMED: kam_radius (F1=%.3f) vs delta (%.3f), gamma (%.3f)",
-                     kam_f1, delta_f1, gamma_f1)
+            log.info(
+                "\n  NOT CONFIRMED: kam_radius (F1=%.3f) vs delta (%.3f), gamma (%.3f)",
+                kam_f1,
+                delta_f1,
+                gamma_f1,
+            )
             log.info("  The product does not outperform individual factors.")
 
     # Save
-    np.savez_compressed("results/kam_test.npz",
-                        ranks=features["rank"], deltas=features["delta"],
-                        gammas=features["gamma"], kam_radii=features["kam_radius"],
-                        periodic=result["is_periodic"], collision=result["collision"])
+    np.savez_compressed(
+        "results/kam_test.npz",
+        ranks=features["rank"],
+        deltas=features["delta"],
+        gammas=features["gamma"],
+        kam_radii=features["kam_radius"],
+        periodic=result["is_periodic"],
+        collision=result["collision"],
+    )
     log.info("\nSaved to results/kam_test.npz")
 
 

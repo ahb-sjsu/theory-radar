@@ -81,9 +81,7 @@ def main():
 
     # GPU integration
     t0 = time.time()
-    result = integrate_batch(z0, m1, m2, m3,
-                             dt=args.dt, n_steps=args.n_steps,
-                             gpu_id=args.gpu)
+    result = integrate_batch(z0, m1, m2, m3, dt=args.dt, n_steps=args.n_steps, gpu_id=args.gpu)
     elapsed = time.time() - t0
 
     # Analysis
@@ -93,16 +91,21 @@ def main():
     n_collision = result["collision"].sum()
 
     log.info("=" * 60)
-    log.info("RESULTS: %d valid, %d collisions, %d periodic (%.2f%%)",
-             n_valid, n_collision, n_periodic,
-             100 * n_periodic / n_valid if n_valid > 0 else 0)
+    log.info(
+        "RESULTS: %d valid, %d collisions, %d periodic (%.2f%%)",
+        n_valid,
+        n_collision,
+        n_periodic,
+        100 * n_periodic / n_valid if n_valid > 0 else 0,
+    )
     log.info("Integration time: %.1f s (%.0f orbits/s)", elapsed, len(z0) / elapsed)
 
     if n_valid > 0:
         rd = result["return_distance"][valid]
         ee = result["energy_error"][valid]
-        log.info("Return distance: min=%.4f, mean=%.4f, median=%.4f",
-                 rd.min(), rd.mean(), np.median(rd))
+        log.info(
+            "Return distance: min=%.4f, mean=%.4f, median=%.4f", rd.min(), rd.mean(), np.median(rd)
+        )
         log.info("Energy error: mean=%.2e, max=%.2e", ee.mean(), ee.max())
 
     # Top 20 closest returns
@@ -111,12 +114,19 @@ def main():
     log.info("\nTop 20 closest returns:")
     for i in sort_order[:20]:
         vi = valid_indices[i]
-        log.info("  r1=%.3f r2=%.3f th=%.3f phi=%.3f rank=%d  "
-                 "ret_dist=%.4f t_ret=%.1f periodic=%s E_err=%.1e",
-                 meta["r1"][vi], meta["r2"][vi],
-                 meta["theta"][vi], meta["phi"][vi], meta["rank"][vi],
-                 result["return_distance"][vi], result["return_time"][vi],
-                 result["is_periodic"][vi], result["energy_error"][vi])
+        log.info(
+            "  r1=%.3f r2=%.3f th=%.3f phi=%.3f rank=%d  "
+            "ret_dist=%.4f t_ret=%.1f periodic=%s E_err=%.1e",
+            meta["r1"][vi],
+            meta["r2"][vi],
+            meta["theta"][vi],
+            meta["phi"][vi],
+            meta["rank"][vi],
+            result["return_distance"][vi],
+            result["return_time"][vi],
+            result["is_periodic"][vi],
+            result["energy_error"][vi],
+        )
 
     # Periodic orbits by rank
     if n_periodic > 0:
@@ -126,9 +136,13 @@ def main():
             periodic_at_rank = result["is_periodic"][rank_mask & valid].sum()
             total_at_rank = (rank_mask & valid).sum()
             if total_at_rank > 0:
-                log.info("  rank=%d: %d/%d periodic (%.1f%%)",
-                         rank_val, periodic_at_rank, total_at_rank,
-                         100 * periodic_at_rank / total_at_rank)
+                log.info(
+                    "  rank=%d: %d/%d periodic (%.1f%%)",
+                    rank_val,
+                    periodic_at_rank,
+                    total_at_rank,
+                    100 * periodic_at_rank / total_at_rank,
+                )
 
     # Save
     out_path = Path(args.landscape).parent / "orbit_search_gpu_results.npz"

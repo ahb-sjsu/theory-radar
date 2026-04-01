@@ -12,7 +12,6 @@ Key improvements over v1:
 
 from __future__ import annotations
 
-import heapq
 import logging
 import time
 
@@ -23,6 +22,7 @@ log = logging.getLogger(__name__)
 
 try:
     import cupy as cp
+
     HAS_CUPY = True
 except ImportError:
     HAS_CUPY = False
@@ -36,17 +36,39 @@ from tensor_3body.integrator_gpu import integrate_batch
 def compute_features_batch(r1_vals, r2_vals, theta_vals, phi_vals, m1, m2, m3):
     """Compute all features as numpy arrays (N,) — vectorized where possible."""
     N = len(r1_vals)
-    feat = {name: np.zeros(N) for name in [
-        "rank", "qq_rank", "inner_rank", "max_gap", "qq_max_gap",
-        "freq_ratio", "n_clusters", "entropy", "energy",
-        "r2_r1", "r1", "r2", "kepler_deviation", "pr",
-        "max_eig", "min_nonzero_eig", "qq_gap_over_max",
-        "log_r2_r1", "log_freq_ratio", "inv_r1", "r1_cubed_inv",
-        "binding_energy", "n_clusters_sq",
-    ]}
+    feat = {
+        name: np.zeros(N)
+        for name in [
+            "rank",
+            "qq_rank",
+            "inner_rank",
+            "max_gap",
+            "qq_max_gap",
+            "freq_ratio",
+            "n_clusters",
+            "entropy",
+            "energy",
+            "r2_r1",
+            "r1",
+            "r2",
+            "kepler_deviation",
+            "pr",
+            "max_eig",
+            "min_nonzero_eig",
+            "qq_gap_over_max",
+            "log_r2_r1",
+            "log_freq_ratio",
+            "inv_r1",
+            "r1_cubed_inv",
+            "binding_energy",
+            "n_clusters_sq",
+        ]
+    }
 
     for i in range(N):
-        z = config_to_phase_space_circular(r1_vals[i], r2_vals[i], theta_vals[i], phi_vals[i], m1, m2, m3)
+        z = config_to_phase_space_circular(
+            r1_vals[i], r2_vals[i], theta_vals[i], phi_vals[i], m1, m2, m3
+        )
         H = hessian_analytical(z, m1, m2, m3)
         eigs = np.sort(np.linalg.eigvalsh(H))
         sv = singular_values(H)
@@ -62,11 +84,13 @@ def compute_features_batch(r1_vals, r2_vals, theta_vals, phi_vals, m1, m2, m3):
         feat["qq_rank"][i] = np.sum(np.abs(qq_eigs) > 1e-6 * max(np.abs(qq_eigs).max(), 1e-30))
         feat["max_gap"][i] = gaps.max()
         feat["qq_max_gap"][i] = np.diff(np.sort(np.abs(qq_eigs))).max() if len(qq_eigs) > 1 else 0
-        feat["freq_ratio"][i] = pos_freqs[0] / (pos_freqs[-1] + 1e-30) if len(pos_freqs) >= 2 else 1.0
+        feat["freq_ratio"][i] = (
+            pos_freqs[0] / (pos_freqs[-1] + 1e-30) if len(pos_freqs) >= 2 else 1.0
+        )
 
         n_cl = 1
         for k in range(len(pos_freqs) - 1):
-            if pos_freqs[k] / (pos_freqs[k+1] + 1e-30) > 10:
+            if pos_freqs[k] / (pos_freqs[k + 1] + 1e-30) > 10:
                 n_cl += 1
         feat["n_clusters"][i] = n_cl
 
@@ -97,7 +121,7 @@ def compute_features_batch(r1_vals, r2_vals, theta_vals, phi_vals, m1, m2, m3):
         feat["log_r2_r1"][i] = np.log10(feat["r2_r1"][i] + 1)
         feat["log_freq_ratio"][i] = np.log10(feat["freq_ratio"][i] + 1)
         feat["inv_r1"][i] = 1.0 / (r1_vals[i] + 1e-10)
-        feat["r1_cubed_inv"][i] = 1.0 / (r1_vals[i]**3 + 1e-10)
+        feat["r1_cubed_inv"][i] = 1.0 / (r1_vals[i] ** 3 + 1e-10)
         feat["binding_energy"][i] = -E if E < 0 else 0
         feat["n_clusters_sq"][i] = n_cl * n_cl
 
@@ -164,17 +188,25 @@ def main():
     log.info("Features: %.1f s", time.time() - t0)
 
     # Integrate for ground truth
-    z0 = np.array([
-        config_to_phase_space_circular(r1_vals[i], r2_vals[i], theta_vals[i], phi_vals[i], m1, m2, m3)
-        for i in range(N)
-    ])
+    z0 = np.array(
+        [
+            config_to_phase_space_circular(
+                r1_vals[i], r2_vals[i], theta_vals[i], phi_vals[i], m1, m2, m3
+            )
+            for i in range(N)
+        ]
+    )
     log.info("Integrating %d orbits on GPU...", N)
     result = integrate_batch(z0, m1, m2, m3, dt=0.005, n_steps=80000, gpu_id=0)
 
     valid = ~result["collision"]
     actual = result["is_periodic"] & valid
-    log.info("Ground truth: %d/%d periodic (%.2f%%)",
-             actual.sum(), valid.sum(), 100 * actual.sum() / valid.sum())
+    log.info(
+        "Ground truth: %d/%d periodic (%.2f%%)",
+        actual.sum(),
+        valid.sum(),
+        100 * actual.sum() / valid.sum(),
+    )
 
     # Build feature matrix on GPU
     feature_names = list(feat.keys())
@@ -208,10 +240,15 @@ def main():
 
     for i, name in enumerate(feature_names):
         vals = X[:, i]
-        pcts = np.percentile(vals[np.isfinite(vals)], percentiles) if np.any(np.isfinite(vals)) else percentiles * 0
+        pcts = (
+            np.percentile(vals[np.isfinite(vals)], percentiles)
+            if np.any(np.isfinite(vals))
+            else percentiles * 0
+        )
         f1 = gpu_f1_sweep(
             cp.asarray(vals) if HAS_CUPY else vals,
-            y_gpu, n_periodic,
+            y_gpu,
+            n_periodic,
             cp.asarray(pcts) if HAS_CUPY else pcts,
         )
         results.append((f1, name))
@@ -222,8 +259,12 @@ def main():
         log.info("  F1=%.3f  %s", f1, name)
 
     # Phase 2: All pairwise combinations with expanded operations
-    log.info("\nPhase 2: Pairwise combinations (%d x %d x 10 ops = %d formulas)...",
-             n_features, n_features, n_features * n_features * 10)
+    log.info(
+        "\nPhase 2: Pairwise combinations (%d x %d x 10 ops = %d formulas)...",
+        n_features,
+        n_features,
+        n_features * n_features * 10,
+    )
 
     ops = {
         "+": lambda a, b: a + b,
@@ -233,9 +274,9 @@ def main():
         "max": lambda a, b: np.maximum(a, b),
         "min": lambda a, b: np.minimum(a, b),
         "hypot": lambda a, b: np.sqrt(a**2 + b**2),
-        "diff_sq": lambda a, b: (a - b)**2,
-        "harmonic": lambda a, b: 2*a*b / (a + b + 1e-30),
-        "geometric": lambda a, b: np.sign(a*b) * np.sqrt(np.abs(a*b)),
+        "diff_sq": lambda a, b: (a - b) ** 2,
+        "harmonic": lambda a, b: 2 * a * b / (a + b + 1e-30),
+        "geometric": lambda a, b: np.sign(a * b) * np.sqrt(np.abs(a * b)),
     }
 
     t0 = time.time()
@@ -262,7 +303,9 @@ def main():
                         f1 = gpu_f1_sweep(vals, y_gpu, n_periodic, pcts)
 
                     if f1 > 0.3:
-                        pair_results.append((f1, f"{feature_names[i]} {op_name} {feature_names[j]}"))
+                        pair_results.append(
+                            (f1, f"{feature_names[i]} {op_name} {feature_names[j]}")
+                        )
                 except Exception:
                     continue
 

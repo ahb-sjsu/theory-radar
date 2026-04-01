@@ -46,6 +46,7 @@ log = logging.getLogger(__name__)
 # Complexity score (the heuristic A* minimizes)
 # ============================================================
 
+
 def complexity_score(H: NDArray) -> float:
     """Compute a composite complexity score for the coupling tensor.
 
@@ -83,10 +84,7 @@ def complexity_score(H: NDArray) -> float:
     bd_bonus = -0.2 if bs["is_block_diagonal"] else 0.0
     sep_bonus = -0.3 if bs["is_separable"] else 0.0
 
-    score = (0.4 * pr_norm
-             + 0.3 * coupling
-             + 0.3 * entropy_norm
-             + bd_bonus + sep_bonus)
+    score = 0.4 * pr_norm + 0.3 * coupling + 0.3 * entropy_norm + bd_bonus + sep_bonus
 
     return max(score, 0.0)
 
@@ -94,6 +92,7 @@ def complexity_score(H: NDArray) -> float:
 # ============================================================
 # A* search state
 # ============================================================
+
 
 @dataclass(order=True)
 class SearchState:
@@ -106,7 +105,9 @@ class SearchState:
 
 def astar_search(
     z0: NDArray,
-    m1: float = 1.0, m2: float = 1.0, m3: float = 1.0,
+    m1: float = 1.0,
+    m2: float = 1.0,
+    m3: float = 1.0,
     max_depth: int = 4,
     max_states: int = 500,
 ) -> dict:
@@ -209,6 +210,7 @@ def astar_search(
 # Parallel search across configurations
 # ============================================================
 
+
 def _search_one(args: tuple) -> dict:
     """Worker: A* search at one configuration."""
     idx, z, m1, m2, m3, max_depth, max_states = args
@@ -239,8 +241,7 @@ def search_landscape(
         n_workers = min(cpu_count(), len(configs))
 
     work = [
-        (i, z, m[0], m[1], m[2], max_depth, max_states)
-        for i, (z, m, _name) in enumerate(configs)
+        (i, z, m[0], m[1], m[2], max_depth, max_states) for i, (z, m, _name) in enumerate(configs)
     ]
 
     if n_workers <= 1:
@@ -260,12 +261,12 @@ def search_landscape(
 # Main
 # ============================================================
 
+
 def main():
     parser = argparse.ArgumentParser(description="Phase 3: A* Tensor Decomposition Search")
     parser.add_argument("--max-depth", type=int, default=4)
     parser.add_argument("--max-states", type=int, default=500)
-    parser.add_argument("--sample", type=int, default=0,
-                        help="Also search N random configurations")
+    parser.add_argument("--sample", type=int, default=0, help="Also search N random configurations")
     parser.add_argument("--workers", type=int, default=None)
     args = parser.parse_args()
 
@@ -286,10 +287,17 @@ def main():
         if r.get("error"):
             log.info("%-25s  ERROR: %s", r["name"], r["error"])
             continue
-        log.info("%-25s  %.3f -> %.3f (delta=%.3f) rank=%d PR=%.2f sep=%s path=%s",
-                 r["name"], r["initial_score"], r["best_score"], r["improvement"],
-                 r["best_rank"], r["best_pr"], r["best_separable"],
-                 " -> ".join(r["best_path"]) if r["best_path"] else "(none)")
+        log.info(
+            "%-25s  %.3f -> %.3f (delta=%.3f) rank=%d PR=%.2f sep=%s path=%s",
+            r["name"],
+            r["initial_score"],
+            r["best_score"],
+            r["improvement"],
+            r["best_rank"],
+            r["best_pr"],
+            r["best_separable"],
+            " -> ".join(r["best_path"]) if r["best_path"] else "(none)",
+        )
 
     # Part 2: Search at random configurations
     if args.sample > 0:
@@ -303,13 +311,19 @@ def main():
             z = config_to_phase_space(r1, r2, theta, phi)
             random_configs.append((z, (1.0, 1.0, 1.0), f"random_{i}"))
 
-        results_random = search_landscape(random_configs, args.max_depth, args.max_states, args.workers)
+        results_random = search_landscape(
+            random_configs, args.max_depth, args.max_states, args.workers
+        )
 
         improvements = [r["improvement"] for r in results_random if not r.get("error")]
         if improvements:
-            log.info("Random sample improvements: mean=%.3f, max=%.3f, >0.1: %d/%d",
-                     np.mean(improvements), max(improvements),
-                     sum(1 for x in improvements if x > 0.1), len(improvements))
+            log.info(
+                "Random sample improvements: mean=%.3f, max=%.3f, >0.1: %d/%d",
+                np.mean(improvements),
+                max(improvements),
+                sum(1 for x in improvements if x > 0.1),
+                len(improvements),
+            )
 
             # Show top 5 most improved
             results_random.sort(key=lambda r: r.get("improvement", 0), reverse=True)
@@ -317,10 +331,15 @@ def main():
             for r in results_random[:5]:
                 if r.get("error"):
                     continue
-                log.info("  %.3f -> %.3f (delta=%.3f) rank=%d sep=%s path=%s",
-                         r["initial_score"], r["best_score"], r["improvement"],
-                         r["best_rank"], r["best_separable"],
-                         " -> ".join(r["best_path"]))
+                log.info(
+                    "  %.3f -> %.3f (delta=%.3f) rank=%d sep=%s path=%s",
+                    r["initial_score"],
+                    r["best_score"],
+                    r["improvement"],
+                    r["best_rank"],
+                    r["best_separable"],
+                    " -> ".join(r["best_path"]),
+                )
 
     elapsed = time.time() - t0
     log.info("\nPhase 3 complete in %.1f seconds.", elapsed)

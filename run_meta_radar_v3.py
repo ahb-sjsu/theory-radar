@@ -11,6 +11,7 @@ Pushes the meta-search to its limits:
 """
 
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import cupy as cp
@@ -19,7 +20,6 @@ import logging
 import time
 import json
 from collections import defaultdict
-from itertools import combinations
 
 from sklearn.datasets import load_breast_cancer, load_wine, load_iris, fetch_openml
 from sklearn.preprocessing import StandardScaler
@@ -30,12 +30,14 @@ log = logging.getLogger()
 
 # ─── GPU Batch F1 ─────────────────────────────────────────────────
 
+
 def gpu_batch_f1(vals, labels):
     N, K = vals.shape
     pos = labels.sum()
     if float(pos) == 0 or float(pos) == N:
         return cp.zeros(K, dtype=cp.float64)
     return cp.maximum(_sweep_f1(vals, labels, pos), _sweep_f1(-vals, labels, pos))
+
 
 def _sweep_f1(vals, labels, pos):
     N, K = vals.shape
@@ -49,6 +51,7 @@ def _sweep_f1(vals, labels, pos):
     valid = cp.ones((N, K), dtype=cp.bool_)
     valid[:-1, :] = (sv[:-1, :] - sv[1:, :]) > 1e-15
     return cp.max(cp.where(valid, f1, 0.0), axis=0)
+
 
 def gpu_batch_auroc(vals, labels):
     N, K = vals.shape
@@ -67,9 +70,12 @@ def gpu_batch_auroc(vals, labels):
 # ─── Formula Search Ops ───────────────────────────────────────────
 
 BINARY_OPS = {
-    "+": lambda a, b: a + b, "-": lambda a, b: a - b,
-    "*": lambda a, b: a * b, "/": lambda a, b: a / (b + 1e-30),
-    "max": lambda a, b: cp.maximum(a, b), "min": lambda a, b: cp.minimum(a, b),
+    "+": lambda a, b: a + b,
+    "-": lambda a, b: a - b,
+    "*": lambda a, b: a * b,
+    "/": lambda a, b: a / (b + 1e-30),
+    "max": lambda a, b: cp.maximum(a, b),
+    "min": lambda a, b: cp.minimum(a, b),
     "hypot": lambda a, b: cp.sqrt(a**2 + b**2),
     "diff_sq": lambda a, b: (a - b) ** 2,
     "harmonic": lambda a, b: 2 * a * b / (a + b + 1e-30),
@@ -79,13 +85,15 @@ BINARY_OPS = {
 UNARY_OPS = {
     "log": lambda x: cp.log(cp.abs(x) + 1e-30),
     "sqrt": lambda x: cp.sqrt(cp.abs(x)),
-    "sq": lambda x: x ** 2, "abs": lambda x: cp.abs(x),
+    "sq": lambda x: x**2,
+    "abs": lambda x: cp.abs(x),
     "sigmoid": lambda x: 1.0 / (1.0 + cp.exp(-cp.clip(x, -500, 500))),
     "tanh": lambda x: cp.tanh(cp.clip(x, -500, 500)),
 }
 
 
 # ─── Exhaustive Search with Lineage ───────────────────────────────
+
 
 def exhaustive_with_lineage(X_gpu, y_gpu, feat_names, max_depth=3):
     N, d = X_gpu.shape
@@ -98,8 +106,12 @@ def exhaustive_with_lineage(X_gpu, y_gpu, feat_names, max_depth=3):
     for i in range(d):
         name = feat_names[i]
         catalog[name] = {
-            "depth": 1, "f1": float(f1s[i]), "auroc": float(aurocs[i]),
-            "values": X_gpu[:, i].copy(), "n_features": 1, "parent": None,
+            "depth": 1,
+            "f1": float(f1s[i]),
+            "auroc": float(aurocs[i]),
+            "values": X_gpu[:, i].copy(),
+            "n_features": 1,
+            "parent": None,
         }
 
     log.info("    Depth 1: %d formulas", d)
@@ -122,8 +134,10 @@ def exhaustive_with_lineage(X_gpu, y_gpu, feat_names, max_depth=3):
                         if float(cp.var(cv)) < 1e-20:
                             continue
                         new_entries[cname] = {
-                            "depth": depth, "values": cv,
-                            "n_features": parent["n_features"] + (1 if feat_names[j] not in pname else 0),
+                            "depth": depth,
+                            "values": cv,
+                            "n_features": parent["n_features"]
+                            + (1 if feat_names[j] not in pname else 0),
                             "parent": pname,
                         }
                         children[pname].append(cname)
@@ -139,8 +153,10 @@ def exhaustive_with_lineage(X_gpu, y_gpu, feat_names, max_depth=3):
                     if float(cp.var(cv)) < 1e-20:
                         continue
                     new_entries[cname] = {
-                        "depth": depth, "values": cv,
-                        "n_features": parent["n_features"], "parent": pname,
+                        "depth": depth,
+                        "values": cv,
+                        "n_features": parent["n_features"],
+                        "parent": pname,
                     }
                     children[pname].append(cname)
                 except Exception:
@@ -151,7 +167,7 @@ def exhaustive_with_lineage(X_gpu, y_gpu, feat_names, max_depth=3):
             # Batch in chunks to avoid OOM
             chunk_size = 50000
             for start in range(0, len(names), chunk_size):
-                chunk_names = names[start:start+chunk_size]
+                chunk_names = names[start : start + chunk_size]
                 vals_mat = cp.stack([new_entries[n]["values"] for n in chunk_names], axis=1)
                 f1s = gpu_batch_f1(vals_mat, y_f)
                 aurocs = gpu_batch_auroc(vals_mat, y_f)
@@ -163,8 +179,13 @@ def exhaustive_with_lineage(X_gpu, y_gpu, feat_names, max_depth=3):
                 cp.get_default_memory_pool().free_all_blocks()
 
         best = max(v["f1"] for v in catalog.values())
-        log.info("    Depth %d: %d new (%d total), best F1=%.4f",
-                 depth, len(new_entries), len(catalog), best)
+        log.info(
+            "    Depth %d: %d new (%d total), best F1=%.4f",
+            depth,
+            len(new_entries),
+            len(catalog),
+            best,
+        )
         prev_names = list(new_entries.keys())
 
     cp.get_default_memory_pool().free_all_blocks()
@@ -172,6 +193,7 @@ def exhaustive_with_lineage(X_gpu, y_gpu, feat_names, max_depth=3):
 
 
 # ─── Subtree Viability ─────────────────────────────────────────────
+
 
 def compute_viability(catalog, children, epsilon=0.005):
     global_best = max(v["f1"] for v in catalog.values())
@@ -186,8 +208,7 @@ def compute_viability(catalog, children, epsilon=0.005):
             if info["depth"] != depth:
                 continue
             child_alive = any(
-                catalog[c]["alive"] == 1
-                for c in children.get(name, []) if c in catalog
+                catalog[c]["alive"] == 1 for c in children.get(name, []) if c in catalog
             )
             info["alive"] = 1 if (info["f1"] >= threshold or child_alive) else 0
 
@@ -195,6 +216,7 @@ def compute_viability(catalog, children, epsilon=0.005):
 
 
 # ─── Deep Meta-Search (Depth-3 Heuristic Formulas) ────────────────
+
 
 def deep_meta_search(catalog, prevalence, max_depth=3):
     """Search for depth-3 heuristic formulas over node features.
@@ -238,8 +260,14 @@ def deep_meta_search(catalog, prevalence, max_depth=3):
 
     n_alive = int(alive.sum())
     n_dead = N - n_alive
-    log.info("    Meta-search depth %d: %d nodes (%d alive, %d dead), %d features",
-             max_depth, N, n_alive, n_dead, d)
+    log.info(
+        "    Meta-search depth %d: %d nodes (%d alive, %d dead), %d features",
+        max_depth,
+        N,
+        n_alive,
+        n_dead,
+        d,
+    )
 
     if n_dead == 0:
         return []
@@ -272,16 +300,18 @@ def deep_meta_search(catalog, prevalence, max_depth=3):
         best_thresh = min_alive if best_dir == ">" else max_alive
 
         if best_rate > 0.01:  # only report if it prunes something
-            results.append({
-                "criterion": crit_name,
-                "direction": best_dir,
-                "threshold": float(best_thresh),
-                "pruned": int(best_pruned),
-                "total_dead": int(n_dead),
-                "prune_rate": float(best_rate),
-                "false_negatives": 0,
-                "total_alive": int(n_alive),
-            })
+            results.append(
+                {
+                    "criterion": crit_name,
+                    "direction": best_dir,
+                    "threshold": float(best_thresh),
+                    "pruned": int(best_pruned),
+                    "total_dead": int(n_dead),
+                    "prune_rate": float(best_rate),
+                    "false_negatives": 0,
+                    "total_alive": int(n_alive),
+                }
+            )
 
     # ── Depth 1: raw meta-features ──
     for i in range(d):
@@ -318,8 +348,9 @@ def deep_meta_search(catalog, prevalence, max_depth=3):
     results.sort(key=lambda x: -x["prune_rate"])
     depth2_top = results[:50]
 
-    log.info("    Depth-2 meta-search found %d criteria, expanding top 50 to depth 3...",
-             len(results))
+    log.info(
+        "    Depth-2 meta-search found %d criteria, expanding top 50 to depth 3...", len(results)
+    )
 
     # Reconstruct values for top depth-2 criteria
     depth2_vals = {}
@@ -374,7 +405,7 @@ def _eval_meta_formula(name, X_gpu, feat_names):
     # Unary: uname(feat)
     for uname, ufn in UNARY_OPS.items():
         if name.startswith(f"{uname}(") and name.endswith(")"):
-            inner = name[len(uname)+1:-1]
+            inner = name[len(uname) + 1 : -1]
             if inner in feat_idx:
                 return ufn(X_gpu[:, feat_idx[inner]])
 
@@ -392,6 +423,7 @@ def _eval_meta_formula(name, X_gpu, feat_names):
 
 
 # ─── Pareto Frontier: epsilon sweep ───────────────────────────────
+
 
 def pareto_sweep(catalog, children, prevalence):
     """Sweep epsilon values to find the Pareto frontier of pruning vs safety."""
@@ -416,22 +448,31 @@ def pareto_sweep(catalog, children, prevalence):
         best_rate = criteria[0]["prune_rate"] if criteria else 0.0
         best_crit = criteria[0]["criterion"] if criteria else "none"
 
-        pareto.append({
-            "epsilon": eps,
-            "global_best": float(global_best),
-            "n_alive": n_alive,
-            "n_dead": n_dead,
-            "best_prune_rate": float(best_rate),
-            "best_criterion": best_crit,
-        })
+        pareto.append(
+            {
+                "epsilon": eps,
+                "global_best": float(global_best),
+                "n_alive": n_alive,
+                "n_dead": n_dead,
+                "best_prune_rate": float(best_rate),
+                "best_criterion": best_crit,
+            }
+        )
 
-        log.info("      eps=%.3f: %d alive, %d dead, best prune=%.1f%% (%s)",
-                 eps, n_alive, n_dead, 100*best_rate, best_crit[:40])
+        log.info(
+            "      eps=%.3f: %d alive, %d dead, best prune=%.1f%% (%s)",
+            eps,
+            n_alive,
+            n_dead,
+            100 * best_rate,
+            best_crit[:40],
+        )
 
     return pareto
 
 
 # ─── Cross-Dataset Generalization ─────────────────────────────────
+
 
 def cross_validate_criterion(datasets_info, criterion_name, direction, threshold):
     """Test a pruning criterion discovered on one dataset against others."""
@@ -471,13 +512,15 @@ def cross_validate_criterion(datasets_info, criterion_name, direction, threshold
         total_dead = tn + fp
         prune_rate = tn / total_dead if total_dead > 0 else 0
 
-        results.append({
-            "dataset": ds_name,
-            "false_negatives": fn,
-            "true_negatives": tn,
-            "prune_rate": float(prune_rate),
-            "admissible": fn == 0,
-        })
+        results.append(
+            {
+                "dataset": ds_name,
+                "false_negatives": fn,
+                "true_negatives": tn,
+                "prune_rate": float(prune_rate),
+                "admissible": fn == 0,
+            }
+        )
 
     return results
 
@@ -508,9 +551,12 @@ def _compute_criterion_value(info, criterion_name):
     if criterion_name.startswith("(") and criterion_name.endswith(")"):
         inner = criterion_name[1:-1]
         ops = {
-            "+": lambda a, b: a + b, "-": lambda a, b: a - b,
-            "*": lambda a, b: a * b, "/": lambda a, b: a / (b + 1e-30),
-            "max": lambda a, b: max(a, b), "min": lambda a, b: min(a, b),
+            "+": lambda a, b: a + b,
+            "-": lambda a, b: a - b,
+            "*": lambda a, b: a * b,
+            "/": lambda a, b: a / (b + 1e-30),
+            "max": lambda a, b: max(a, b),
+            "min": lambda a, b: min(a, b),
         }
         for opname, opfn in ops.items():
             parts = inner.split(f" {opname} ", 1)
@@ -521,6 +567,7 @@ def _compute_criterion_value(info, criterion_name):
 
 
 # ─── Feature Ablation ─────────────────────────────────────────────
+
 
 def ablation_study(catalog, prevalence):
     """Test each meta-feature individually and in combinations."""
@@ -553,17 +600,31 @@ def ablation_study(catalog, prevalence):
         pruned = (dead_vals < thresh).sum()
         rate = pruned / len(dead_vals)
 
-        log.info("      %s: alive=[%.3f,%.3f] dead=[%.3f,%.3f] overlap=%.3f prune=%.1f%%",
-                 fname, alive_vals.min(), alive_vals.max(),
-                 dead_vals.min(), dead_vals.max(), overlap, 100*rate)
+        log.info(
+            "      %s: alive=[%.3f,%.3f] dead=[%.3f,%.3f] overlap=%.3f prune=%.1f%%",
+            fname,
+            alive_vals.min(),
+            alive_vals.max(),
+            dead_vals.min(),
+            dead_vals.max(),
+            overlap,
+            100 * rate,
+        )
 
 
 # ─��─ Main Pipeline ─────────────────────────────────────────────────
 
+
 def process_dataset(name, X, y, feat_names, max_d=10, max_depth=3):
     log.info("  " + "=" * 66)
-    log.info("  %s (N=%d, d=%d, prev=%.2f) — depth %d exhaustive",
-             name, X.shape[0], X.shape[1], y.mean(), max_depth)
+    log.info(
+        "  %s (N=%d, d=%d, prev=%.2f) — depth %d exhaustive",
+        name,
+        X.shape[0],
+        X.shape[1],
+        y.mean(),
+        max_depth,
+    )
     log.info("  " + "=" * 66)
 
     d = X.shape[1]
@@ -599,8 +660,13 @@ def process_dataset(name, X, y, feat_names, max_d=10, max_depth=3):
     for depth in range(1, max_d_found + 1):
         nodes = [(n, v) for n, v in catalog.items() if v["depth"] == depth]
         alive = sum(1 for _, v in nodes if v["alive"] == 1)
-        log.info("    Depth %d: %d alive / %d total (%.1f%% prunable)",
-                 depth, alive, len(nodes), 100 * (1 - alive/max(len(nodes),1)))
+        log.info(
+            "    Depth %d: %d alive / %d total (%.1f%% prunable)",
+            depth,
+            alive,
+            len(nodes),
+            100 * (1 - alive / max(len(nodes), 1)),
+        )
 
     # Ablation
     ablation_study(catalog, prevalence)
@@ -618,9 +684,14 @@ def process_dataset(name, X, y, feat_names, max_d=10, max_depth=3):
     log.info("    %-55s  %s  %-10s  %-8s", "Criterion", "Dir", "Pruned", "Rate")
     log.info("    " + "-" * 85)
     for c in criteria[:20]:
-        log.info("    %-55s   %s  %4d/%4d   %5.1f%%",
-                 c["criterion"][:55], c["direction"],
-                 c["pruned"], c["total_dead"], 100 * c["prune_rate"])
+        log.info(
+            "    %-55s   %s  %4d/%4d   %5.1f%%",
+            c["criterion"][:55],
+            c["direction"],
+            c["pruned"],
+            c["total_dead"],
+            100 * c["prune_rate"],
+        )
 
     # Pareto frontier
     log.info("")
@@ -628,8 +699,10 @@ def process_dataset(name, X, y, feat_names, max_d=10, max_depth=3):
     pareto = pareto_sweep(catalog, children, prevalence)
 
     return {
-        "name": name, "catalog_size": len(catalog),
-        "criteria": criteria[:50], "pareto": pareto,
+        "name": name,
+        "catalog_size": len(catalog),
+        "criteria": criteria[:50],
+        "pareto": pareto,
         "catalog": catalog,  # for cross-validation
     }
 
@@ -641,8 +714,7 @@ def main():
     log.info("=" * 70)
 
     props = cp.cuda.runtime.getDeviceProperties(0)
-    log.info("GPU: %s (%.1f GB free)", props["name"].decode(),
-             cp.cuda.Device(0).mem_info[0] / 1e9)
+    log.info("GPU: %s (%.1f GB free)", props["name"].decode(), cp.cuda.Device(0).mem_info[0] / 1e9)
 
     datasets = []
 
@@ -704,16 +776,27 @@ def main():
         admissible_all = all(r["admissible"] for r in xval)
         avg_prune = np.mean([r["prune_rate"] for r in xval])
 
-        log.info("  %-50s  avg_prune=%.1f%%  universal=%s",
-                 crit_name[:50], 100*avg_prune,
-                 "YES" if admissible_all else "NO (FN: " + ",".join(
-                     f"{r['dataset']}:{r['false_negatives']}" for r in xval if not r["admissible"]
-                 ) + ")")
+        log.info(
+            "  %-50s  avg_prune=%.1f%%  universal=%s",
+            crit_name[:50],
+            100 * avg_prune,
+            "YES"
+            if admissible_all
+            else "NO (FN: "
+            + ",".join(
+                f"{r['dataset']}:{r['false_negatives']}" for r in xval if not r["admissible"]
+            )
+            + ")",
+        )
 
         for r in xval:
-            log.info("    %s: prune=%.1f%% FN=%d %s",
-                     r["dataset"], 100*r["prune_rate"], r["false_negatives"],
-                     "✓" if r["admissible"] else "✗")
+            log.info(
+                "    %s: prune=%.1f%% FN=%d %s",
+                r["dataset"],
+                100 * r["prune_rate"],
+                r["false_negatives"],
+                "✓" if r["admissible"] else "✗",
+            )
 
     # Save (without catalog to keep file size reasonable)
     save_results = []

@@ -16,7 +16,7 @@ import time
 
 import numpy as np
 
-from tensor_3body.hamiltonian import hessian_analytical, hamiltonian, jacobi_masses
+from tensor_3body.hamiltonian import hessian_analytical, hamiltonian
 from tensor_3body.sampling import config_to_phase_space_circular
 from tensor_3body.tensor_ops import effective_rank, block_structure, participation_ratio
 from tensor_3body.integrator_gpu import integrate_batch
@@ -46,7 +46,7 @@ def frequency_cluster_count(freqs, ratio_threshold=10.0):
     sorted_f = np.sort(pos)[::-1]
     clusters = 1
     for i in range(len(sorted_f) - 1):
-        if sorted_f[i] / (sorted_f[i+1] + 1e-30) > ratio_threshold:
+        if sorted_f[i] / (sorted_f[i + 1] + 1e-30) > ratio_threshold:
             clusters += 1
     return clusters
 
@@ -107,8 +107,14 @@ def main():
     all_meta = []
 
     for scenario_name, m1, m2, m3 in mass_scenarios:
-        log.info("\n--- Generating %d configs for %s (%.1f, %.1f, %.1f) ---",
-                 N_per_mass, scenario_name, m1, m2, m3)
+        log.info(
+            "\n--- Generating %d configs for %s (%.1f, %.1f, %.1f) ---",
+            N_per_mass,
+            scenario_name,
+            m1,
+            m2,
+            m3,
+        )
 
         r1_vals = 10 ** rng.uniform(-1, 2, N_per_mass)
         r2_vals = 10 ** rng.uniform(-1, 2, N_per_mass)
@@ -126,12 +132,18 @@ def main():
             feat["scenario"] = scenario_name
             all_features.append(feat)
 
-            all_meta.append({
-                "r1": r1_vals[i], "r2": r2_vals[i],
-                "theta": theta_vals[i], "phi": phi_vals[i],
-                "m1": m1, "m2": m2, "m3": m3,
-                "scenario": scenario_name,
-            })
+            all_meta.append(
+                {
+                    "r1": r1_vals[i],
+                    "r2": r2_vals[i],
+                    "theta": theta_vals[i],
+                    "phi": phi_vals[i],
+                    "m1": m1,
+                    "m2": m2,
+                    "m3": m3,
+                    "scenario": scenario_name,
+                }
+            )
 
         elapsed = time.time() - t0
         log.info("  Features computed in %.1f s (%.0f/s)", elapsed, N_per_mass / elapsed)
@@ -141,8 +153,12 @@ def main():
         ranks = [f["rank"] for f in scenario_feats]
         inner_ranks = [f["inner_rank"] for f in scenario_feats]
         clusters = [f["n_clusters"] for f in scenario_feats]
-        log.info("  rank: mean=%.1f, inner_rank: mean=%.1f, clusters: mean=%.1f",
-                 np.mean(ranks), np.mean(inner_ranks), np.mean(clusters))
+        log.info(
+            "  rank: mean=%.1f, inner_rank: mean=%.1f, clusters: mean=%.1f",
+            np.mean(ranks),
+            np.mean(inner_ranks),
+            np.mean(clusters),
+        )
 
     N = len(all_z)
     z0 = np.array(all_z)
@@ -178,15 +194,11 @@ def main():
     predictions["clusters>=2_AND_E>-3"] = (n_clusters >= 2) & (energies > -3) & (energies < -0.3)
 
     # Goldilocks ratio
-    predictions["clusters>=2_AND_ratio_10_100"] = (
-        (n_clusters >= 2) & (r2_r1 > 10) & (r2_r1 < 100)
-    )
+    predictions["clusters>=2_AND_ratio_10_100"] = (n_clusters >= 2) & (r2_r1 > 10) & (r2_r1 < 100)
 
     # Combined best
     predictions["BEST_combo"] = (
-        (n_clusters >= 2) &
-        (inner_ranks >= 4) &
-        (energies > -3) & (energies < -0.1)
+        (n_clusters >= 2) & (inner_ranks >= 4) & (energies > -3) & (energies < -0.1)
     )
 
     log.info("\nPredictions made. Integrating on GPU...")
@@ -218,8 +230,9 @@ def main():
                     # Integrate first part
                     if i > batch_start:
                         sub_z = z0[batch_start:i]
-                        r = integrate_batch(sub_z, batch_m1, batch_m2, batch_m3,
-                                          dt=0.005, n_steps=80000, gpu_id=0)
+                        r = integrate_batch(
+                            sub_z, batch_m1, batch_m2, batch_m3, dt=0.005, n_steps=80000, gpu_id=0
+                        )
                         all_periodic[batch_start:i] = r["is_periodic"]
                         all_collision[batch_start:i] = r["collision"]
                         all_ret_dist[batch_start:i] = r["return_distance"]
@@ -233,14 +246,16 @@ def main():
 
             # Integrate remaining
             sub_z = z0[batch_start:batch_end]
-            r = integrate_batch(sub_z, batch_m1, batch_m2, batch_m3,
-                              dt=0.005, n_steps=80000, gpu_id=0)
+            r = integrate_batch(
+                sub_z, batch_m1, batch_m2, batch_m3, dt=0.005, n_steps=80000, gpu_id=0
+            )
             all_periodic[batch_start:batch_end] = r["is_periodic"]
             all_collision[batch_start:batch_end] = r["collision"]
             all_ret_dist[batch_start:batch_end] = r["return_distance"]
         else:
-            r = integrate_batch(batch_z, batch_m1, batch_m2, batch_m3,
-                              dt=0.005, n_steps=80000, gpu_id=0)
+            r = integrate_batch(
+                batch_z, batch_m1, batch_m2, batch_m3, dt=0.005, n_steps=80000, gpu_id=0
+            )
             all_periodic[batch_start:batch_end] = r["is_periodic"]
             all_collision[batch_start:batch_end] = r["collision"]
             all_ret_dist[batch_start:batch_end] = r["return_distance"]
@@ -251,9 +266,14 @@ def main():
     valid = ~all_collision
     actual = all_periodic & valid
 
-    log.info("\nIntegration: %.1f s, %d/%d periodic (%.2f%%), %d collisions",
-             t_integrate, actual.sum(), valid.sum(),
-             100 * actual.sum() / valid.sum(), all_collision.sum())
+    log.info(
+        "\nIntegration: %.1f s, %d/%d periodic (%.2f%%), %d collisions",
+        t_integrate,
+        actual.sum(),
+        valid.sum(),
+        100 * actual.sum() / valid.sum(),
+        all_collision.sum(),
+    )
 
     # Score per scenario
     log.info("\n" + "=" * 70)
@@ -265,7 +285,9 @@ def main():
         s_valid = s_mask & valid
         n_p = (actual & s_mask).sum()
         n_v = s_valid.sum()
-        log.info("\n%s: %d/%d periodic (%.2f%%)", scenario, n_p, n_v, 100*n_p/n_v if n_v > 0 else 0)
+        log.info(
+            "\n%s: %d/%d periodic (%.2f%%)", scenario, n_p, n_v, 100 * n_p / n_v if n_v > 0 else 0
+        )
 
         for name, pred in predictions.items():
             pred_s = pred & s_valid
@@ -274,12 +296,17 @@ def main():
             fp = int((pred_s & ~actual_s).sum())
             fn = int((~pred_s & actual_s).sum())
             tn = int((~pred_s & ~actual_s).sum())
-            prec = tp/(tp+fp) if (tp+fp) > 0 else 0
-            rec = tp/(tp+fn) if (tp+fn) > 0 else 0
-            f1 = 2*prec*rec/(prec+rec) if (prec+rec) > 0 else 0
+            prec = tp / (tp + fp) if (tp + fp) > 0 else 0
+            rec = tp / (tp + fn) if (tp + fn) > 0 else 0
+            f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0
             if f1 > 0.01:
-                log.info("  %-35s prec=%5.1f%% rec=%5.1f%% F1=%5.1f%%",
-                         name, 100*prec, 100*rec, 100*f1)
+                log.info(
+                    "  %-35s prec=%5.1f%% rec=%5.1f%% F1=%5.1f%%",
+                    name,
+                    100 * prec,
+                    100 * rec,
+                    100 * f1,
+                )
 
     # Overall
     log.info("\n" + "=" * 70)
@@ -292,19 +319,26 @@ def main():
         tp = int((pred_v & actual_v).sum())
         fp = int((pred_v & ~actual_v).sum())
         fn = int((~pred_v & actual_v).sum())
-        prec = tp/(tp+fp) if (tp+fp) > 0 else 0
-        rec = tp/(tp+fn) if (tp+fn) > 0 else 0
-        f1 = 2*prec*rec/(prec+rec) if (prec+rec) > 0 else 0
-        log.info("%-35s  %5.1f%% %5.1f%% %5.1f%%", name, 100*prec, 100*rec, 100*f1)
+        prec = tp / (tp + fp) if (tp + fp) > 0 else 0
+        rec = tp / (tp + fn) if (tp + fn) > 0 else 0
+        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0
+        log.info("%-35s  %5.1f%% %5.1f%% %5.1f%%", name, 100 * prec, 100 * rec, 100 * f1)
 
     # Save
     np.savez_compressed(
         "results/prediction_large.npz",
-        ranks=ranks, inner_ranks=inner_ranks, gammas=gammas,
-        freq_ratios=freq_ratios, n_clusters=n_clusters,
-        energies=energies, r2_r1=r2_r1, is_separable=is_separable,
-        scenarios=scenarios, periodic=all_periodic,
-        collision=all_collision, return_distance=all_ret_dist,
+        ranks=ranks,
+        inner_ranks=inner_ranks,
+        gammas=gammas,
+        freq_ratios=freq_ratios,
+        n_clusters=n_clusters,
+        energies=energies,
+        r2_r1=r2_r1,
+        is_separable=is_separable,
+        scenarios=scenarios,
+        periodic=all_periodic,
+        collision=all_collision,
+        return_distance=all_ret_dist,
     )
     log.info("\nSaved to results/prediction_large.npz")
 

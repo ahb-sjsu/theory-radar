@@ -4,7 +4,11 @@
 Runs Tucker experiments as managed subprocesses, throttled by CPU temp.
 Waits for the thermal manager's other jobs to finish first.
 """
-import os, sys, logging, time
+
+import os
+import sys
+import logging
+import time
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")

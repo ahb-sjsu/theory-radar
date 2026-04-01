@@ -43,10 +43,11 @@ import time
 
 import numpy as np
 from sklearn.metrics import roc_auc_score
-from sklearn.datasets import make_circles, make_moons, load_breast_cancer, load_iris
+from sklearn.datasets import make_circles, make_moons, load_breast_cancer
 from sklearn.preprocessing import StandardScaler
 
 import sys
+
 sys.path.insert(0, "src")
 from symbolic_search._search import _f1_threshold_sweep
 from symbolic_search._ops import BINARY_OPS
@@ -148,8 +149,12 @@ def main():
         elif f1_exact > f1_pct:
             n_exact_better += 1
 
-    log.info("  100 random trials: %d exact match, %d exact better, %d percentile better",
-             n_match, n_exact_better, 100 - n_match - n_exact_better)
+    log.info(
+        "  100 random trials: %d exact match, %d exact better, %d percentile better",
+        n_match,
+        n_exact_better,
+        100 - n_match - n_exact_better,
+    )
 
     # ============================================================
     # Benchmark: exhaustive vs AUROC-filtered exact search
@@ -250,13 +255,27 @@ def main():
         prune_rate = n_pruned / max(n_pruned + n_evaluated_filt, 1)
 
         log.info("\n  %s (d=%d):", name, d)
-        log.info("    Exhaustive:     F1=%.4f, evals=%d, time=%.2fs, %s",
-                 best_f1_ex, n_evaluated_ex, time_ex, best_formula_ex)
-        log.info("    AUROC-filtered: F1=%.4f, evals=%d, pruned=%d (%.0f%%), time=%.2fs",
-                 best_f1_filt, n_evaluated_filt, n_pruned, 100 * prune_rate, time_filt)
-        log.info("    Speedup: %.1fx, F1 match: %s, Formula: %s",
-                 speedup, "YES" if f1_match else "*** NO ***",
-                 best_formula_filt)
+        log.info(
+            "    Exhaustive:     F1=%.4f, evals=%d, time=%.2fs, %s",
+            best_f1_ex,
+            n_evaluated_ex,
+            time_ex,
+            best_formula_ex,
+        )
+        log.info(
+            "    AUROC-filtered: F1=%.4f, evals=%d, pruned=%d (%.0f%%), time=%.2fs",
+            best_f1_filt,
+            n_evaluated_filt,
+            n_pruned,
+            100 * prune_rate,
+            time_filt,
+        )
+        log.info(
+            "    Speedup: %.1fx, F1 match: %s, Formula: %s",
+            speedup,
+            "YES" if f1_match else "*** NO ***",
+            best_formula_filt,
+        )
 
         if not f1_match:
             log.info("    *** ADMISSIBILITY VIOLATION: pruned the best formula ***")
@@ -272,8 +291,9 @@ def main():
     X_bc, y_bc, features_bc = datasets["Breast Cancer (15D)"]
     actual_bc = y_bc.astype(bool)
 
-    log.info("%-10s  %8s  %8s  %8s  %8s  %5s",
-             "Threshold", "F1", "Evals", "Pruned", "Time", "Match")
+    log.info(
+        "%-10s  %8s  %8s  %8s  %8s  %5s", "Threshold", "F1", "Evals", "Pruned", "Time", "Match"
+    )
 
     # First get exhaustive baseline
     best_f1_base = 0
@@ -320,9 +340,15 @@ def main():
         elapsed = time.time() - t0
         match = abs(best_f1 - best_f1_base) < 0.001
 
-        log.info("%-10.2f  %8.4f  %8d  %8d  %8.2fs  %s",
-                 auroc_thresh, best_f1, n_eval, n_prune, elapsed,
-                 "YES" if match else "NO ***")
+        log.info(
+            "%-10.2f  %8.4f  %8d  %8d  %8.2fs  %s",
+            auroc_thresh,
+            best_f1,
+            n_eval,
+            n_prune,
+            elapsed,
+            "YES" if match else "NO ***",
+        )
 
 
 if __name__ == "__main__":

@@ -25,11 +25,12 @@ import logging
 import time
 
 import numpy as np
-from sklearn.metrics import roc_auc_score, f1_score
+from sklearn.metrics import roc_auc_score
 from sklearn.datasets import make_circles, make_moons, load_breast_cancer
 from sklearn.preprocessing import StandardScaler
 
 import sys
+
 sys.path.insert(0, "src")
 from symbolic_search._search import _f1_threshold_sweep
 from symbolic_search._ops import BINARY_OPS_MINIMAL
@@ -50,7 +51,9 @@ def auroc_f1_bound(auroc: float, prevalence: float) -> float:
         return 2 * prevalence  # worst case: random
     # Tighter bound: F1 ≤ 2 * PPV_max * TPR_max / (PPV_max + TPR_max)
     # where both are bounded by AUROC
-    return min(1.0, 2 * auroc * prevalence / (auroc * prevalence + (1 - auroc) * (1 - prevalence) + 1e-30))
+    return min(
+        1.0, 2 * auroc * prevalence / (auroc * prevalence + (1 - auroc) * (1 - prevalence) + 1e-30)
+    )
 
 
 def compute_auroc(values: np.ndarray, actual: np.ndarray) -> float:
@@ -87,12 +90,12 @@ def main():
     auroc_base = compute_auroc(values, actual)
     truly_monotone = {
         "2x+3": lambda x: 2 * x + 3,
-        "x^3": lambda x: x ** 3,
+        "x^3": lambda x: x**3,
         "exp": lambda x: np.exp(np.clip(x, -500, 500)),
         "neg": lambda x: -x,
     }
     NOT_monotone = {
-        "x^2": lambda x: x ** 2,
+        "x^2": lambda x: x**2,
         "abs": lambda x: np.abs(x),
         "sin": lambda x: np.sin(x),
     }
@@ -101,15 +104,25 @@ def main():
     for name, fn in truly_monotone.items():
         auroc_t = compute_auroc(fn(values), actual)
         diff = abs(auroc_t - auroc_base)
-        log.info("    %10s: AUROC = %.4f (diff = %.6f) %s",
-                 name, auroc_t, diff, "OK" if diff < 0.001 else "VIOLATION")
+        log.info(
+            "    %10s: AUROC = %.4f (diff = %.6f) %s",
+            name,
+            auroc_t,
+            diff,
+            "OK" if diff < 0.001 else "VIOLATION",
+        )
 
     log.info("\n  Non-monotone transforms (may change AUROC):")
     for name, fn in NOT_monotone.items():
         auroc_t = compute_auroc(fn(values), actual)
         diff = abs(auroc_t - auroc_base)
-        log.info("    %10s: AUROC = %.4f (diff = %.6f) %s",
-                 name, auroc_t, diff, "CHANGED" if diff > 0.01 else "same")
+        log.info(
+            "    %10s: AUROC = %.4f (diff = %.6f) %s",
+            name,
+            auroc_t,
+            diff,
+            "CHANGED" if diff > 0.01 else "same",
+        )
 
     # ============================================================
     # AUROC-based pruning for Phase 2
@@ -217,14 +230,26 @@ def main():
         prune_rate = formulas_pruned / max(formulas_pruned + formulas_evaluated, 1)
 
         log.info("\n  %s:", name)
-        log.info("    Exhaustive: F1=%.3f, formulas=%d, time=%.2fs, formula=%s",
-                 best_f1_exhaustive, formulas_exhaustive, time_exhaustive,
-                 best_formula_exhaustive)
-        log.info("    AUROC-pruned: F1=%.3f, formulas=%d, pruned=%d (%.0f%%), time=%.2fs",
-                 best_f1_pruned, formulas_evaluated, formulas_pruned,
-                 100 * prune_rate, time_pruned)
-        log.info("    Speedup: %.1fx, F1 match: %s",
-                 speedup, "YES" if f1_match else "NO *** ADMISSIBILITY VIOLATION ***")
+        log.info(
+            "    Exhaustive: F1=%.3f, formulas=%d, time=%.2fs, formula=%s",
+            best_f1_exhaustive,
+            formulas_exhaustive,
+            time_exhaustive,
+            best_formula_exhaustive,
+        )
+        log.info(
+            "    AUROC-pruned: F1=%.3f, formulas=%d, pruned=%d (%.0f%%), time=%.2fs",
+            best_f1_pruned,
+            formulas_evaluated,
+            formulas_pruned,
+            100 * prune_rate,
+            time_pruned,
+        )
+        log.info(
+            "    Speedup: %.1fx, F1 match: %s",
+            speedup,
+            "YES" if f1_match else "NO *** ADMISSIBILITY VIOLATION ***",
+        )
 
     log.info("\n" + "=" * 70)
     log.info("CONCLUSION")

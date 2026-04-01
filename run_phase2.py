@@ -100,8 +100,7 @@ def main():
     log.info("=" * 70)
 
     # Also compute a "generic" configuration for comparison
-    z_generic = np.array([1.5, 0.3, 0.1, -0.8, 2.1, 0.4,
-                           0.1, -0.2, 0.05, -0.15, 0.1, -0.08])
+    z_generic = np.array([1.5, 0.3, 0.1, -0.8, 2.1, 0.4, 0.1, -0.2, 0.05, -0.15, 0.1, -0.08])
     H_generic = hessian_analytical(z_generic, 1.0, 1.0, 1.0)
     generic_rank = effective_rank(H_generic)
     generic_pr = participation_ratio(H_generic)
@@ -112,30 +111,57 @@ def main():
         r = analyze_solution(sol)
         results.append(r)
 
-        rank_vs_generic = "LOWER" if r["eff_rank"] < generic_rank else (
-            "SAME" if r["eff_rank"] == generic_rank else "HIGHER")
+        rank_vs_generic = (
+            "LOWER"
+            if r["eff_rank"] < generic_rank
+            else ("SAME" if r["eff_rank"] == generic_rank else "HIGHER")
+        )
 
         log.info("")
-        log.info("%-25s  rank=%d (%s vs generic=%d)  PR=%.2f",
-                 r["name"], r["eff_rank"], rank_vs_generic, generic_rank, r["participation_ratio"])
-        log.info("  qq_rank=%d  pp_rank=%d  block_diag=%s  separable=%s",
-                 r["qq_rank"], r["pp_rank"], r["is_block_diagonal"], r["is_separable"])
-        log.info("  cross_body_q=%.2e  cross_body_p=%.2e  swap_asym=%.2e",
-                 r["cross_body_q"], r["cross_body_p"], r["swap_asymmetry"])
-        log.info("  singular values: %s",
-                 "  ".join(f"{s:.3e}" for s in r["singular_values"]))
+        log.info(
+            "%-25s  rank=%d (%s vs generic=%d)  PR=%.2f",
+            r["name"],
+            r["eff_rank"],
+            rank_vs_generic,
+            generic_rank,
+            r["participation_ratio"],
+        )
+        log.info(
+            "  qq_rank=%d  pp_rank=%d  block_diag=%s  separable=%s",
+            r["qq_rank"],
+            r["pp_rank"],
+            r["is_block_diagonal"],
+            r["is_separable"],
+        )
+        log.info(
+            "  cross_body_q=%.2e  cross_body_p=%.2e  swap_asym=%.2e",
+            r["cross_body_q"],
+            r["cross_body_p"],
+            r["swap_asymmetry"],
+        )
+        log.info("  singular values: %s", "  ".join(f"{s:.3e}" for s in r["singular_values"]))
         log.info("  multilinear rank: %s", r["multilinear_rank"])
-        log.info("  tucker mode ranks (99%% var): %s",
-                 dict(zip(r["tucker_mode_names"], r["tucker_mode_ranks"])))
+        log.info(
+            "  tucker mode ranks (99%% var): %s",
+            dict(zip(r["tucker_mode_names"], r["tucker_mode_ranks"])),
+        )
         # Show strongest and weakest couplings
         coups = r["mode_couplings"]
         sorted_coups = sorted(coups.items(), key=lambda x: x[1]["concentration"])
-        log.info("  weakest coupling:  %s (conc=%.3f, rank=%d/%d)",
-                 sorted_coups[0][0], sorted_coups[0][1]["concentration"],
-                 sorted_coups[0][1]["eff_rank"], sorted_coups[0][1]["max_rank"])
-        log.info("  strongest coupling: %s (conc=%.3f, rank=%d/%d)",
-                 sorted_coups[-1][0], sorted_coups[-1][1]["concentration"],
-                 sorted_coups[-1][1]["eff_rank"], sorted_coups[-1][1]["max_rank"])
+        log.info(
+            "  weakest coupling:  %s (conc=%.3f, rank=%d/%d)",
+            sorted_coups[0][0],
+            sorted_coups[0][1]["concentration"],
+            sorted_coups[0][1]["eff_rank"],
+            sorted_coups[0][1]["max_rank"],
+        )
+        log.info(
+            "  strongest coupling: %s (conc=%.3f, rank=%d/%d)",
+            sorted_coups[-1][0],
+            sorted_coups[-1][1]["concentration"],
+            sorted_coups[-1][1]["eff_rank"],
+            sorted_coups[-1][1]["max_rank"],
+        )
         log.info("  expected: %s", r["expected"])
 
     # Summary and decision gate

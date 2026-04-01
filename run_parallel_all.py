@@ -3,7 +3,8 @@
 Each subprocess runs the full pipeline on one dataset.
 Small datasets share CPU; large datasets share GPU via CUDA driver serialization.
 """
-import subprocess, sys, os, time
+
+import time
 
 DATASETS = [
     # (name, script_args)
@@ -77,16 +78,17 @@ with open("/tmp/run_one_dataset.py", "w") as f:
 
 # Upload runner
 import paramiko
+
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect('100.68.134.21', username='claude', password='roZes9090!~')
+ssh.connect("100.68.134.21", username="claude", password="roZes9090!~")
 
 sftp = ssh.open_sftp()
 sftp.put("/tmp/run_one_dataset.py", "/home/claude/tensor-3body/run_one_dataset.py")
 sftp.close()
 
 # Kill the sequential run
-ssh.exec_command('tmux kill-session -t all 2>/dev/null')
+ssh.exec_command("tmux kill-session -t all 2>/dev/null")
 time.sleep(1)
 
 # Launch all 8 datasets (BreastCancer is already in all_full.log from earlier runs)
@@ -103,16 +105,18 @@ for short, args in ALL:
 time.sleep(5)
 
 # Check
-stdin, stdout, stderr = ssh.exec_command('tmux list-sessions 2>/dev/null')
+stdin, stdout, stderr = ssh.exec_command("tmux list-sessions 2>/dev/null")
 print("\nSessions:", stdout.read().decode().strip())
 
-stdin, stdout, stderr = ssh.exec_command('sensors 2>/dev/null | grep Package')
+stdin, stdout, stderr = ssh.exec_command("sensors 2>/dev/null | grep Package")
 print("CPU:", stdout.read().decode().strip())
 
-stdin, stdout, stderr = ssh.exec_command('nvidia-smi --query-gpu=index,utilization.gpu,memory.used,temperature.gpu --format=csv,noheader')
+stdin, stdout, stderr = ssh.exec_command(
+    "nvidia-smi --query-gpu=index,utilization.gpu,memory.used,temperature.gpu --format=csv,noheader"
+)
 print("GPU:", stdout.read().decode().strip())
 
-stdin, stdout, stderr = ssh.exec_command('ps aux --sort=-%cpu | head -15')
+stdin, stdout, stderr = ssh.exec_command("ps aux --sort=-%cpu | head -15")
 print(stdout.read().decode())
 
 ssh.close()

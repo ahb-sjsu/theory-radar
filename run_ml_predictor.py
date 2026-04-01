@@ -23,7 +23,6 @@ def main():
     from sklearn.linear_model import LogisticRegression
     from sklearn.ensemble import GradientBoostingClassifier
     from sklearn.model_selection import cross_val_score, StratifiedKFold
-    from sklearn.metrics import classification_report, precision_recall_fscore_support
 
     log.info("=" * 70)
     log.info("ML Predictor: Learning Optimal Periodicity Criteria")
@@ -52,24 +51,33 @@ def main():
 
     # Filter to valid
     feature_names = [
-        "rank", "inner_rank", "gamma", "log_freq_ratio", "n_clusters",
-        "energy", "log_r2_r1", "is_separable", "scenario",
+        "rank",
+        "inner_rank",
+        "gamma",
+        "log_freq_ratio",
+        "n_clusters",
+        "energy",
+        "log_r2_r1",
+        "is_separable",
+        "scenario",
     ]
 
-    X = np.column_stack([
-        ranks[valid],
-        inner_ranks[valid],
-        gammas[valid],
-        np.log10(freq_ratios[valid] + 1),
-        n_clusters[valid],
-        energies[valid],
-        np.log10(r2_r1[valid] + 1),
-        is_separable[valid],
-        scenario_num[valid],
-    ])
+    X = np.column_stack(
+        [
+            ranks[valid],
+            inner_ranks[valid],
+            gammas[valid],
+            np.log10(freq_ratios[valid] + 1),
+            n_clusters[valid],
+            energies[valid],
+            np.log10(r2_r1[valid] + 1),
+            is_separable[valid],
+            scenario_num[valid],
+        ]
+    )
     y = periodic[valid].astype(int)
 
-    log.info("Dataset: %d samples, %d periodic (%.1f%%)", len(y), y.sum(), 100*y.mean())
+    log.info("Dataset: %d samples, %d periodic (%.1f%%)", len(y), y.sum(), 100 * y.mean())
     log.info("Features: %s", feature_names)
 
     # Handle infinities and NaN
@@ -80,8 +88,9 @@ def main():
 
     # 1. Decision Tree (interpretable)
     log.info("\n--- Decision Tree (max_depth=5) ---")
-    dt = DecisionTreeClassifier(max_depth=5, min_samples_leaf=50,
-                                 class_weight="balanced", random_state=42)
+    dt = DecisionTreeClassifier(
+        max_depth=5, min_samples_leaf=50, class_weight="balanced", random_state=42
+    )
     dt_scores = cross_val_score(dt, X, y, cv=cv, scoring="f1")
     log.info("  CV F1: %.3f ± %.3f", dt_scores.mean(), dt_scores.std())
 
@@ -98,8 +107,9 @@ def main():
 
     # 2. Decision Tree (deeper, for best performance)
     log.info("\n--- Decision Tree (max_depth=8) ---")
-    dt8 = DecisionTreeClassifier(max_depth=8, min_samples_leaf=20,
-                                  class_weight="balanced", random_state=42)
+    dt8 = DecisionTreeClassifier(
+        max_depth=8, min_samples_leaf=20, class_weight="balanced", random_state=42
+    )
     dt8_scores = cross_val_score(dt8, X, y, cv=cv, scoring="f1")
     log.info("  CV F1: %.3f ± %.3f", dt8_scores.mean(), dt8_scores.std())
 
@@ -116,8 +126,9 @@ def main():
 
     # 4. Gradient Boosting (best performance ceiling)
     log.info("\n--- Gradient Boosting (100 trees) ---")
-    gb = GradientBoostingClassifier(n_estimators=100, max_depth=4,
-                                     min_samples_leaf=20, random_state=42)
+    gb = GradientBoostingClassifier(
+        n_estimators=100, max_depth=4, min_samples_leaf=20, random_state=42
+    )
     gb_scores = cross_val_score(gb, X, y, cv=cv, scoring="f1")
     log.info("  CV F1: %.3f ± %.3f", gb_scores.mean(), gb_scores.std())
 
@@ -139,16 +150,22 @@ def main():
         if y_s.sum() < 10:
             continue
 
-        dt_s = DecisionTreeClassifier(max_depth=4, min_samples_leaf=30,
-                                       class_weight="balanced", random_state=42)
+        dt_s = DecisionTreeClassifier(
+            max_depth=4, min_samples_leaf=30, class_weight="balanced", random_state=42
+        )
         scores_s = cross_val_score(dt_s, X_s, y_s, cv=cv, scoring="f1")
         dt_s.fit(X_s, y_s)
 
         # Remove scenario feature for per-scenario trees
         feat_no_scenario = [f for f in feature_names if f != "scenario"]
 
-        log.info("\n%s (n=%d, periodic=%.1f%%, CV F1=%.3f):",
-                 scenario_name, len(y_s), 100*y_s.mean(), scores_s.mean())
+        log.info(
+            "\n%s (n=%d, periodic=%.1f%%, CV F1=%.3f):",
+            scenario_name,
+            len(y_s),
+            100 * y_s.mean(),
+            scores_s.mean(),
+        )
         tree_s = export_text(dt_s, feature_names=feature_names, max_depth=4)
         log.info("%s", tree_s)
 

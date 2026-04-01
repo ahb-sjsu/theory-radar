@@ -16,16 +16,12 @@ from sklearn.metrics import f1_score
 from scipy import stats
 from symbolic_search.radar import TheoryRadar
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger()
 
 
 def run_cv(name, X, y, features, n_repeats=10, n_folds=5):
-    cv = RepeatedStratifiedKFold(
-        n_splits=n_folds, n_repeats=n_repeats, random_state=42
-    )
+    cv = RepeatedStratifiedKFold(n_splits=n_folds, n_repeats=n_repeats, random_state=42)
 
     astar_f1s, gb_f1s, rf_f1s, lr_f1s = [], [], [], []
     formulas = []
@@ -53,9 +49,7 @@ def run_cv(name, X, y, features, n_repeats=10, n_folds=5):
                 gb_f1s,
             ),
             (
-                lambda: RandomForestClassifier(
-                    n_estimators=100, random_state=42 + fold_i
-                ),
+                lambda: RandomForestClassifier(n_estimators=100, random_state=42 + fold_i),
                 rf_f1s,
             ),
             (lambda: LogisticRegression(max_iter=1000, random_state=42), lr_f1s),
@@ -130,9 +124,7 @@ def main():
         log.info("Diabetes: %s", e)
 
     try:
-        bn = fetch_openml(
-            "banknote-authentication", version=1, as_frame=False, parser="auto"
-        )
+        bn = fetch_openml("banknote-authentication", version=1, as_frame=False, parser="auto")
         X = StandardScaler().fit_transform(bn.data.astype(float))
         y = bn.target.astype(int)
         datasets.append(("Banknote 4D", X, y, [f"b{i}" for i in range(X.shape[1])]))

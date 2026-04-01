@@ -3,7 +3,10 @@
 Uses ThermalJobManager for temperature-safe parallel execution.
 Reduced beam widths for large N to avoid GPU OOM.
 """
-import os, sys, logging, time
+
+import os
+import logging
+import time
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -25,18 +28,32 @@ log.info("CPU cool (%.1fC). Launching next batch.", _read_cpu_temp())
 
 jobs = [
     # Re-run OOM datasets with smaller beams
-    ("Electricity", [
-        "python", "run_one.py",
-        "Electricity", "20", "30", "5", "6"  # nr=20, bw=30, ns=5, sk=6
-    ]),
-    ("MiniBooNE", [
-        "python", "run_one.py",
-        "MiniBooNE", "10", "20", "3", "6"  # nr=10, bw=20, ns=3, sk=6
-    ]),
+    (
+        "Electricity",
+        [
+            "python",
+            "run_one.py",
+            "Electricity",
+            "20",
+            "30",
+            "5",
+            "6",  # nr=20, bw=30, ns=5, sk=6
+        ],
+    ),
+    (
+        "MiniBooNE",
+        [
+            "python",
+            "run_one.py",
+            "MiniBooNE",
+            "10",
+            "20",
+            "3",
+            "6",  # nr=10, bw=20, ns=3, sk=6
+        ],
+    ),
     # Tucker experiment on BreastCancer
-    ("Tucker", [
-        "python", "run_tucker_formula.py"
-    ]),
+    ("Tucker", ["python", "run_tucker_formula.py"]),
 ]
 
 mgr = ThermalJobManager(

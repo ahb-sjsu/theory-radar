@@ -60,11 +60,20 @@ def load_dataset(name):
         "Sonar": ("sonar", 1, None),
         "Spambase": ("spambase", 1, None),
         "Australian": ("australian", 1, None),
+        "Mammography": ("mammography", 1, None),
+        "Breast-w": ("breast-w", 1, None),
+        "Steel": ("steel-plates-fault", 1, None),
+        "QSAR": ("qsar-biodeg", 1, None),
+        "Wilt": ("wilt", 2, None),
+        "JM1": ("jm1", 1, None),
+        "KC1": ("kc1", 1, None),
+        "PC4": ("pc4", 1, None),
+        "Vehicle": ("vehicle", 1, None),
     }
 
     # Datasets that need special handling
     SPECIAL = {
-        "German": ("german-credit", 1),
+        "German": ("credit-g", 1),
         "Adult": ("adult", 1),
         "HIGGS": ("higgs", 1),
         "Covertype": None,  # sklearn built-in
@@ -72,19 +81,16 @@ def load_dataset(name):
 
     if name in OPENML:
         oml_name, ver, target_fn = OPENML[name]
-        ds = fetch_openml(oml_name, version=ver, as_frame=True, parser="auto")
+        ds = fetch_openml(oml_name, version=ver, as_frame=False, parser="auto")
 
-        # Get numeric columns only
-        df = ds.data
-        numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
-
-        if numeric_cols:
-            X = df[numeric_cols].values.astype(float)
-            feat_names = [f"v{i}" for i in range(len(numeric_cols))]
+        import numpy as np
+        import scipy.sparse
+        if scipy.sparse.issparse(ds.data):
+            X = ds.data.toarray().astype(float)
         else:
-            # Encode all columns
-            X = OrdinalEncoder().fit_transform(df).astype(float)
-            feat_names = [f"v{i}" for i in range(X.shape[1])]
+            X = np.array(ds.data, dtype=float)
+        X = np.nan_to_num(X, nan=0.0)
+        feat_names = [f"v{i}" for i in range(X.shape[1])]
 
         X = StandardScaler().fit_transform(X)
 
@@ -107,7 +113,7 @@ def load_dataset(name):
             return X, y, [f"v{i}" for i in range(X.shape[1])]
 
         oml_name, ver = SPECIAL[name]
-        ds = fetch_openml(oml_name, version=ver, as_frame=True, parser="auto")
+        ds = fetch_openml(oml_name, version=ver, as_frame=False, parser="auto")
         df = ds.data
 
         # Encode mixed types: numeric stays, categorical gets ordinal encoded
@@ -145,37 +151,35 @@ def load_dataset(name):
     raise ValueError(f"Unknown dataset: {name}")
 
 
-# Load and run
+# Load dataset
 X, y, feats = load_dataset(name)
-log.info(
-    "%s: N=%d d=%d prev=%.2f nr=%d bw=%d ns=%d sk=%d",
-    name,
-    X.shape[0],
-    X.shape[1],
-    y.mean(),
-    nr,
-    bw,
-    ns,
-    sk,
-)
+log.info("%s: N=%d d=%d prev=%.2f", name, X.shape[0], X.shape[1], y.mean())
 
+# Step 1: Autotune to find the best projection/config
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+from symbolic_search import TheoryRadar
+
+log.info("Autotuning (max 120s)...")
+import time as _time
+t0 = _time.time()
+best_radar, autotune_result = TheoryRadar.autotune(X, y, feature_names=feats, max_time=120)
+log.info("Autotune: %.0fs, projection=%s, F1=%.4f, formula=%s",
+         _time.time() - t0, best_radar.projection,
+         autotune_result.f1, autotune_result.formula[:30])
+
+# Step 2: Run full CV with the winning config
 r = run_dataset(
-    name,
-    X,
-    y,
-    feats,
-    n_repeats=nr,
-    n_folds=5,
-    n_pca=8,
-    max_depth=3,
-    beam_width=bw,
-    n_subspaces=ns,
-    subspace_k=sk,
+    name, X, y, feats,
+    n_repeats=nr, n_folds=5,
+    max_depth=3, beam_width=bw,
+    n_subspaces=ns, subspace_k=sk,
 )
 
 # Add metadata
 r["N"] = int(X.shape[0])
 r["d"] = int(X.shape[1])
+r["autotune_projection"] = str(best_radar.projection)
+r["autotune_f1"] = float(autotune_result.f1)
 
 with open(f"result_{name.lower()}.json", "w") as f:
     json.dump(r, f, indent=2)

@@ -14,6 +14,7 @@ Uses CuPy on GPU 0 | joblib (20 workers) for sklearn baselines.
 """
 
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import cupy as cp
@@ -39,9 +40,12 @@ log = logging.getLogger()
 # ─── Vectorized GPU Ops ───────────────────────────────────────────
 
 VBINARY = [
-    ("+", lambda B, F: B + F), ("-", lambda B, F: B - F),
-    ("*", lambda B, F: B * F), ("/", lambda B, F: B / (F + 1e-30)),
-    ("max", lambda B, F: cp.maximum(B, F)), ("min", lambda B, F: cp.minimum(B, F)),
+    ("+", lambda B, F: B + F),
+    ("-", lambda B, F: B - F),
+    ("*", lambda B, F: B * F),
+    ("/", lambda B, F: B / (F + 1e-30)),
+    ("max", lambda B, F: cp.maximum(B, F)),
+    ("min", lambda B, F: cp.minimum(B, F)),
     ("hypot", lambda B, F: cp.sqrt(B**2 + F**2)),
     ("diff_sq", lambda B, F: (B - F) ** 2),
     ("harmonic", lambda B, F: 2 * B * F / (B + F + 1e-30)),
@@ -51,7 +55,7 @@ VBINARY = [
 VUNARY = [
     ("log", lambda V: cp.log(cp.abs(V) + 1e-30)),
     ("sqrt", lambda V: cp.sqrt(cp.abs(V))),
-    ("sq", lambda V: V ** 2),
+    ("sq", lambda V: V**2),
     ("abs", lambda V: cp.abs(V)),
     ("sigmoid", lambda V: 1.0 / (1.0 + cp.exp(-cp.clip(V, -500, 500)))),
     ("tanh", lambda V: cp.tanh(cp.clip(V, -500, 500))),
@@ -59,9 +63,12 @@ VUNARY = [
 
 # Scalar versions for re-applying formulas to numpy test data
 SCALAR_BINARY = {
-    "+": lambda a, b: a + b, "-": lambda a, b: a - b,
-    "*": lambda a, b: a * b, "/": lambda a, b: a / (b + 1e-30),
-    "max": lambda a, b: np.maximum(a, b), "min": lambda a, b: np.minimum(a, b),
+    "+": lambda a, b: a + b,
+    "-": lambda a, b: a - b,
+    "*": lambda a, b: a * b,
+    "/": lambda a, b: a / (b + 1e-30),
+    "max": lambda a, b: np.maximum(a, b),
+    "min": lambda a, b: np.minimum(a, b),
     "hypot": lambda a, b: np.sqrt(a**2 + b**2),
     "diff_sq": lambda a, b: (a - b) ** 2,
     "harmonic": lambda a, b: 2 * a * b / (a + b + 1e-30),
@@ -71,7 +78,7 @@ SCALAR_BINARY = {
 SCALAR_UNARY = {
     "log": lambda x: np.log(np.abs(x) + 1e-30),
     "sqrt": lambda x: np.sqrt(np.abs(x)),
-    "sq": lambda x: x ** 2,
+    "sq": lambda x: x**2,
     "abs": lambda x: np.abs(x),
     "sigmoid": lambda x: 1.0 / (1.0 + np.exp(-np.clip(x, -500, 500))),
     "tanh": lambda x: np.tanh(np.clip(x, -500, 500)),
@@ -80,12 +87,14 @@ SCALAR_UNARY = {
 
 # ─── GPU Batched F1 (with constant-value fix) ─────────────────────
 
+
 def gpu_batch_f1(vals, labels):
     N, K = vals.shape
     pos = labels.sum()
     if float(pos) == 0 or float(pos) == N:
         return cp.zeros(K, dtype=cp.float64)
     return cp.maximum(_sweep_f1(vals, labels, pos), _sweep_f1(-vals, labels, pos))
+
 
 def _sweep_f1(vals, labels, pos):
     N, K = vals.shape
@@ -102,6 +111,7 @@ def _sweep_f1(vals, labels, pos):
 
 
 # ─── Formula Trace: trackable operations for test-set replay ──────
+
 
 class FormulaTrace:
     """Records the operations used to build a formula so it can be
@@ -180,6 +190,7 @@ def apply_threshold(vals, threshold, direction):
 
 
 # ─── GPU Beam Search with Formula Traces ──────────────────────────
+
 
 def gpu_beam_search_traced(X_gpu, y_gpu, feat_names, max_depth=3, beam_width=100):
     """Beam search returning the best formula's TRACE (replayable on test data)."""
@@ -290,12 +301,13 @@ def gpu_beam_search_traced(X_gpu, y_gpu, feat_names, max_depth=3, beam_width=100
 
 # ─── CPU Baselines ─────────────────────────────────────────────────
 
+
 def run_sklearn_fold(X, y, tr, te, fold_i):
     X_tr, X_te, y_tr, y_te = X[tr], X[te], y[tr], y[te]
     out = {}
     for name, clf in [
-        ("GB", GradientBoostingClassifier(n_estimators=100, max_depth=4, random_state=42+fold_i)),
-        ("RF", RandomForestClassifier(n_estimators=100, random_state=42+fold_i)),
+        ("GB", GradientBoostingClassifier(n_estimators=100, max_depth=4, random_state=42 + fold_i)),
+        ("RF", RandomForestClassifier(n_estimators=100, random_state=42 + fold_i)),
         ("LR", LogisticRegression(max_iter=1000, random_state=42)),
     ]:
         clf.fit(X_tr, y_tr)
@@ -305,11 +317,20 @@ def run_sklearn_fold(X, y, tr, te, fold_i):
 
 # ─── Main Pipeline ─────────────────────────────────────────────────
 
+
 def run_dataset(name, X, y, features, n_repeats=200, n_folds=5):
     total = n_repeats * n_folds
     log.info("=" * 70)
-    log.info("%s (N=%d, d=%d, prev=%.0f%%) — %dx%d = %d folds [FAIR EVAL]",
-             name, X.shape[0], X.shape[1], 100*y.mean(), n_repeats, n_folds, total)
+    log.info(
+        "%s (N=%d, d=%d, prev=%.0f%%) — %dx%d = %d folds [FAIR EVAL]",
+        name,
+        X.shape[0],
+        X.shape[1],
+        100 * y.mean(),
+        n_repeats,
+        n_folds,
+        total,
+    )
     log.info("=" * 70)
 
     cv = RepeatedStratifiedKFold(n_splits=n_folds, n_repeats=n_repeats, random_state=42)
@@ -319,8 +340,8 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5):
     X_gpu = cp.asarray(X, dtype=cp.float64)
     y_gpu = cp.asarray(y, dtype=cp.float64)
 
-    astar_f1s = []       # F1 on TEST data (fair)
-    astar_train_f1s = [] # F1 on TRAIN data (for comparison)
+    astar_f1s = []  # F1 on TEST data (fair)
+    astar_train_f1s = []  # F1 on TRAIN data (for comparison)
     formulas = []
     t0 = time.time()
 
@@ -331,7 +352,8 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5):
 
         # Search on training data
         train_f1, formula_name, trace = gpu_beam_search_traced(
-            X_tr_gpu, y_tr_gpu, features, max_depth=3, beam_width=100)
+            X_tr_gpu, y_tr_gpu, features, max_depth=3, beam_width=100
+        )
         astar_train_f1s.append(train_f1)
         formulas.append(formula_name)
 
@@ -356,12 +378,17 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5):
         if (fold_i + 1) % 100 == 0:
             elapsed = time.time() - t0
             rate = (fold_i + 1) / elapsed
-            log.info("  GPU fold %d/%d  train_F1=%.3f  test_F1=%.3f  %.1f folds/s",
-                     fold_i+1, total, np.mean(astar_train_f1s[-100:]),
-                     np.mean(astar_f1s[-100:]), rate)
+            log.info(
+                "  GPU fold %d/%d  train_F1=%.3f  test_F1=%.3f  %.1f folds/s",
+                fold_i + 1,
+                total,
+                np.mean(astar_train_f1s[-100:]),
+                np.mean(astar_f1s[-100:]),
+                rate,
+            )
 
     gpu_time = time.time() - t0
-    log.info("  GPU done: %d folds in %.0fs (%.1f folds/s)", total, gpu_time, total/gpu_time)
+    log.info("  GPU done: %d folds in %.0fs (%.1f folds/s)", total, gpu_time, total / gpu_time)
 
     del X_gpu, y_gpu
     cp.get_default_memory_pool().free_all_blocks()
@@ -372,11 +399,10 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5):
     log.info("  CPU baselines: %d folds x %d workers...", total, n_jobs)
 
     baseline_results = Parallel(n_jobs=n_jobs, backend="loky", verbose=0)(
-        delayed(run_sklearn_fold)(X, y, tr, te, fi)
-        for fi, (tr, te) in enumerate(splits)
+        delayed(run_sklearn_fold)(X, y, tr, te, fi) for fi, (tr, te) in enumerate(splits)
     )
     cpu_time = time.time() - t1
-    log.info("  CPU done: %.0fs (%.1f folds/s)", cpu_time, total/cpu_time)
+    log.info("  CPU done: %.0fs (%.1f folds/s)", cpu_time, total / cpu_time)
 
     # Phase 3: Stats (NOW COMPARING TEST vs TEST — FAIR)
     astar_f1s = np.array(astar_f1s)
@@ -387,8 +413,10 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5):
         diffs = astar_f1s - bf1s
         t_stat, p_value = stats.ttest_1samp(diffs, 0)
         results[bname] = {
-            "mean": float(bf1s.mean()), "std": float(bf1s.std()),
-            "diff": float(diffs.mean()), "sigma": float(abs(t_stat)),
+            "mean": float(bf1s.mean()),
+            "std": float(bf1s.std()),
+            "diff": float(diffs.mean()),
+            "sigma": float(abs(t_stat)),
             "p": float(p_value),
             "dir": "A*>" if diffs.mean() > 0 else f"{bname}>",
         }
@@ -397,7 +425,9 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5):
     top = fc.most_common(1)[0]
 
     summary = {
-        "name": name, "N": int(X.shape[0]), "d": int(X.shape[1]),
+        "name": name,
+        "N": int(X.shape[0]),
+        "d": int(X.shape[1]),
         "n_folds": total,
         "astar_test_mean": float(astar_f1s.mean()),
         "astar_test_std": float(astar_f1s.std()),
@@ -405,18 +435,32 @@ def run_dataset(name, X, y, features, n_repeats=200, n_folds=5):
         "astar_train_std": float(astar_train_f1s.std()),
         "train_test_gap": float(astar_train_f1s.mean() - astar_f1s.mean()),
         "baselines": results,
-        "formula": top[0], "stability": float(top[1]/len(formulas)),
-        "gpu_time_s": float(gpu_time), "cpu_time_s": float(cpu_time),
+        "formula": top[0],
+        "stability": float(top[1] / len(formulas)),
+        "gpu_time_s": float(gpu_time),
+        "cpu_time_s": float(cpu_time),
     }
 
-    log.info("  FORMULA: %s (%.0f%% stable)", top[0][:60], 100*summary["stability"])
+    log.info("  FORMULA: %s (%.0f%% stable)", top[0][:60], 100 * summary["stability"])
     log.info("  A* TRAIN: %.4f +/- %.4f", summary["astar_train_mean"], summary["astar_train_std"])
-    log.info("  A* TEST:  %.4f +/- %.4f  (gap=%.4f)",
-             summary["astar_test_mean"], summary["astar_test_std"], summary["train_test_gap"])
+    log.info(
+        "  A* TEST:  %.4f +/- %.4f  (gap=%.4f)",
+        summary["astar_test_mean"],
+        summary["astar_test_std"],
+        summary["train_test_gap"],
+    )
     for bname in ["GB", "RF", "LR"]:
         b = results[bname]
-        log.info("  vs %-3s: %.4f +/- %.4f  diff=%+.4f  %.1fσ  p=%.2e  %s",
-                 bname, b["mean"], b["std"], b["diff"], b["sigma"], b["p"], b["dir"])
+        log.info(
+            "  vs %-3s: %.4f +/- %.4f  diff=%+.4f  %.1fσ  p=%.2e  %s",
+            bname,
+            b["mean"],
+            b["std"],
+            b["diff"],
+            b["sigma"],
+            b["p"],
+            b["dir"],
+        )
     return summary
 
 
@@ -429,8 +473,7 @@ def main():
     log.info("=" * 70)
 
     props = cp.cuda.runtime.getDeviceProperties(0)
-    log.info("GPU: %s (%.1f GB free)", props["name"].decode(),
-             cp.cuda.Device(0).mem_info[0] / 1e9)
+    log.info("GPU: %s (%.1f GB free)", props["name"].decode(), cp.cuda.Device(0).mem_info[0] / 1e9)
 
     _ = cp.sort(cp.random.rand(10000, 100), axis=0)
     cp.cuda.Stream.null.synchronize()
@@ -485,16 +528,30 @@ def main():
     log.info("")
     log.info("=" * 100)
     log.info("FINAL SUMMARY — FAIR EVALUATION (200x5=1000 folds, test-set F1)")
-    log.info("%-15s  %-8s  %-8s  %-6s  %-25s  %-8s  %-8s  %-8s",
-             "Dataset", "TrainF1", "TestF1", "Gap", "Formula", "vs GB", "vs RF", "vs LR")
+    log.info(
+        "%-15s  %-8s  %-8s  %-6s  %-25s  %-8s  %-8s  %-8s",
+        "Dataset",
+        "TrainF1",
+        "TestF1",
+        "Gap",
+        "Formula",
+        "vs GB",
+        "vs RF",
+        "vs LR",
+    )
     log.info("-" * 100)
     for r in all_results:
-        log.info("%-15s  %.4f   %.4f   %.4f  %-25s  %6.1f   %6.1f   %6.1f",
-                 r["name"], r["astar_train_mean"], r["astar_test_mean"],
-                 r["train_test_gap"], r["formula"][:25],
-                 r["baselines"]["GB"]["sigma"],
-                 r["baselines"]["RF"]["sigma"],
-                 r["baselines"]["LR"]["sigma"])
+        log.info(
+            "%-15s  %.4f   %.4f   %.4f  %-25s  %6.1f   %6.1f   %6.1f",
+            r["name"],
+            r["astar_train_mean"],
+            r["astar_test_mean"],
+            r["train_test_gap"],
+            r["formula"][:25],
+            r["baselines"]["GB"]["sigma"],
+            r["baselines"]["RF"]["sigma"],
+            r["baselines"]["LR"]["sigma"],
+        )
     log.info("=" * 100)
 
 

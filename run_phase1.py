@@ -49,7 +49,9 @@ def run_scenario(
 
     data = compute_landscape(
         configs,
-        m1=masses[0], m2=masses[1], m3=masses[2],
+        m1=masses[0],
+        m2=masses[1],
+        m3=masses[2],
         use_circular=use_circular,
         n_workers=n_workers,
     )
@@ -59,17 +61,22 @@ def run_scenario(
     valid = ranks >= 0
     if valid.sum() > 0:
         r = ranks[valid]
-        log.info("Effective rank: min=%d, max=%d, mean=%.1f, median=%d",
-                 r.min(), r.max(), r.mean(), np.median(r))
+        log.info(
+            "Effective rank: min=%d, max=%d, mean=%.1f, median=%d",
+            r.min(),
+            r.max(),
+            r.mean(),
+            np.median(r),
+        )
         for rank_val in range(1, 13):
             count = np.sum(r == rank_val)
             if count > 0:
-                log.info("  rank=%d: %d configs (%.2f%%)",
-                         rank_val, count, 100 * count / len(r))
+                log.info("  rank=%d: %d configs (%.2f%%)", rank_val, count, 100 * count / len(r))
 
         pr = data["participation_ratio"][valid]
-        log.info("Participation ratio: min=%.2f, max=%.2f, mean=%.2f",
-                 pr.min(), pr.max(), pr.mean())
+        log.info(
+            "Participation ratio: min=%.2f, max=%.2f, mean=%.2f", pr.min(), pr.max(), pr.mean()
+        )
 
         n_sep = data["is_separable"][valid].sum()
         n_bd = data["is_block_diagonal"][valid].sum()
@@ -83,8 +90,7 @@ def run_scenario(
         if len(low_rank_configs) > 0 and len(low_rank_configs) <= 20:
             log.info("Lowest-rank (%d) configurations:", min_rank)
             for cfg in low_rank_configs:
-                log.info("  r1=%.3f, r2=%.3f, theta=%.3f, phi=%.3f",
-                         cfg[0], cfg[1], cfg[2], cfg[3])
+                log.info("  r1=%.3f, r2=%.3f, theta=%.3f, phi=%.3f", cfg[0], cfg[1], cfg[2], cfg[3])
 
     # Save
     suffix = "_circular" if use_circular else "_static"
@@ -96,16 +102,24 @@ def run_scenario(
 
 def main():
     parser = argparse.ArgumentParser(description="Phase 1: Tensor Landscape Mapping")
-    parser.add_argument("--resolution", choices=["coarse", "medium", "fine"],
-                        default="coarse",
-                        help="Grid resolution (default: coarse)")
-    parser.add_argument("--circular", action="store_true",
-                        help="Use circular orbit momenta instead of zero momenta")
-    parser.add_argument("--scenario", choices=list(MASS_SCENARIOS.keys()) + ["all"],
-                        default="all",
-                        help="Which mass scenario to run (default: all)")
-    parser.add_argument("--workers", type=int, default=None,
-                        help="Number of parallel workers (default: cpu_count)")
+    parser.add_argument(
+        "--resolution",
+        choices=["coarse", "medium", "fine"],
+        default="coarse",
+        help="Grid resolution (default: coarse)",
+    )
+    parser.add_argument(
+        "--circular", action="store_true", help="Use circular orbit momenta instead of zero momenta"
+    )
+    parser.add_argument(
+        "--scenario",
+        choices=list(MASS_SCENARIOS.keys()) + ["all"],
+        default="all",
+        help="Which mass scenario to run (default: all)",
+    )
+    parser.add_argument(
+        "--workers", type=int, default=None, help="Number of parallel workers (default: cpu_count)"
+    )
 
     args = parser.parse_args()
 
@@ -123,14 +137,12 @@ def main():
 
     # Run scenarios
     scenarios = (
-        MASS_SCENARIOS if args.scenario == "all"
-        else {args.scenario: MASS_SCENARIOS[args.scenario]}
+        MASS_SCENARIOS if args.scenario == "all" else {args.scenario: MASS_SCENARIOS[args.scenario]}
     )
 
     t0 = time.time()
     for name, masses in scenarios.items():
-        run_scenario(name, masses, configs,
-                     use_circular=args.circular, n_workers=args.workers)
+        run_scenario(name, masses, configs, use_circular=args.circular, n_workers=args.workers)
 
     elapsed = time.time() - t0
     log.info("=" * 60)

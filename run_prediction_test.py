@@ -50,7 +50,7 @@ def frequency_cluster_count(freqs: np.ndarray, ratio_threshold: float = 10.0) ->
     sorted_f = np.sort(pos)[::-1]
     clusters = 1
     for i in range(len(sorted_f) - 1):
-        if sorted_f[i] / (sorted_f[i+1] + 1e-30) > ratio_threshold:
+        if sorted_f[i] / (sorted_f[i + 1] + 1e-30) > ratio_threshold:
             clusters += 1
     return clusters
 
@@ -67,8 +67,8 @@ def main():
     # Step 1: Generate NEW random configurations
     # Uniform in log(r1), log(r2), uniform in angles
     log.info("\nStep 1: Generating %d new random configurations...", N)
-    r1_vals = 10 ** rng.uniform(-1, 2, N)       # 0.1 to 100
-    r2_vals = 10 ** rng.uniform(-1, 2, N)       # 0.1 to 100
+    r1_vals = 10 ** rng.uniform(-1, 2, N)  # 0.1 to 100
+    r2_vals = 10 ** rng.uniform(-1, 2, N)  # 0.1 to 100
     theta_vals = rng.uniform(0.01, np.pi, N)
     phi_vals = rng.uniform(0, 2 * np.pi, N)
 
@@ -102,12 +102,20 @@ def main():
 
     # Feature summary
     log.info("\n  Feature distributions:")
-    log.info("  γ: mean=%.4f, std=%.4f, min=%.4f, max=%.4f",
-             gammas.mean(), gammas.std(), gammas.min(), gammas.max())
-    log.info("  rank: mean=%.1f, min=%d, max=%d",
-             ranks.mean(), ranks.min(), ranks.max())
-    log.info("  freq_ratio: mean=%.1f, median=%.1f, max=%.1f",
-             freq_ratios.mean(), np.median(freq_ratios), freq_ratios.max())
+    log.info(
+        "  γ: mean=%.4f, std=%.4f, min=%.4f, max=%.4f",
+        gammas.mean(),
+        gammas.std(),
+        gammas.min(),
+        gammas.max(),
+    )
+    log.info("  rank: mean=%.1f, min=%d, max=%d", ranks.mean(), ranks.min(), ranks.max())
+    log.info(
+        "  freq_ratio: mean=%.1f, median=%.1f, max=%.1f",
+        freq_ratios.mean(),
+        np.median(freq_ratios),
+        freq_ratios.max(),
+    )
     log.info("  n_clusters: %s", dict(zip(*np.unique(n_clusters, return_counts=True))))
 
     # Step 3: Make predictions BEFORE integration
@@ -144,8 +152,9 @@ def main():
     predictions["rank<=10_AND_fratio>50"] = (ranks <= 10) & (freq_ratios > 50)
 
     for name, pred in predictions.items():
-        log.info("  %-30s predicts %d/%d periodic (%.1f%%)",
-                 name, pred.sum(), N, 100 * pred.sum() / N)
+        log.info(
+            "  %-30s predicts %d/%d periodic (%.1f%%)", name, pred.sum(), N, 100 * pred.sum() / N
+        )
 
     # Step 4: Integrate ALL on GPU (ground truth)
     log.info("\nStep 4: Integrating all %d orbits on GPU (ground truth)...", N)
@@ -158,15 +167,19 @@ def main():
     n_collision = int(result["collision"].sum())
 
     log.info("  Integration: %.1f s (%.0f orbits/s)", t_integrate, N / t_integrate)
-    log.info("  Ground truth: %d/%d periodic (%.2f%%), %d collisions",
-             n_actual_periodic, N, 100 * n_actual_periodic / N, n_collision)
+    log.info(
+        "  Ground truth: %d/%d periodic (%.2f%%), %d collisions",
+        n_actual_periodic,
+        N,
+        100 * n_actual_periodic / N,
+        n_collision,
+    )
 
     # Step 5: Score each prediction rule
     log.info("\n" + "=" * 70)
     log.info("RESULTS: Prediction Accuracy")
     log.info("=" * 70)
-    log.info("%-30s  %6s %6s %6s %6s %6s",
-             "Rule", "Prec", "Recall", "F1", "Acc", "Predicted")
+    log.info("%-30s  %6s %6s %6s %6s %6s", "Rule", "Prec", "Recall", "F1", "Acc", "Predicted")
 
     valid = ~result["collision"]
     actual_valid = actual[valid]
@@ -187,15 +200,21 @@ def main():
         f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
         accuracy = (tp + tn) / (tp + fp + fn + tn)
 
-        log.info("%-30s  %5.1f%% %5.1f%% %5.1f%% %5.1f%% %6d",
-                 name, 100*precision, 100*recall, 100*f1, 100*accuracy,
-                 int(pred_valid.sum()))
+        log.info(
+            "%-30s  %5.1f%% %5.1f%% %5.1f%% %5.1f%% %6d",
+            name,
+            100 * precision,
+            100 * recall,
+            100 * f1,
+            100 * accuracy,
+            int(pred_valid.sum()),
+        )
 
         if f1 > best_f1:
             best_f1 = f1
             best_rule = name
 
-    log.info("\nBest rule: %s (F1=%.1f%%)", best_rule, 100*best_f1)
+    log.info("\nBest rule: %s (F1=%.1f%%)", best_rule, 100 * best_f1)
 
     # ROC-like analysis: sweep γ threshold
     log.info("\n--- γ threshold sweep ---")
@@ -208,7 +227,7 @@ def main():
         prec = tp / (tp + fp) if (tp + fp) > 0 else 0
         rec = tp / (tp + fn) if (tp + fn) > 0 else 0
         f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0
-        log.info("%-10.2f  %5.1f%% %5.1f%% %5.1f%%", threshold, 100*prec, 100*rec, 100*f1)
+        log.info("%-10.2f  %5.1f%% %5.1f%% %5.1f%%", threshold, 100 * prec, 100 * rec, 100 * f1)
 
     # Rank sweep
     log.info("\n--- Rank threshold sweep ---")
@@ -221,13 +240,18 @@ def main():
         prec = tp / (tp + fp) if (tp + fp) > 0 else 0
         rec = tp / (tp + fn) if (tp + fn) > 0 else 0
         f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0
-        log.info("%-10d  %5.1f%% %5.1f%% %5.1f%%", max_rank, 100*prec, 100*rec, 100*f1)
+        log.info("%-10d  %5.1f%% %5.1f%% %5.1f%%", max_rank, 100 * prec, 100 * rec, 100 * f1)
 
     # Save everything
     np.savez_compressed(
         "results/prediction_test.npz",
-        r1=r1_vals, r2=r2_vals, theta=theta_vals, phi=phi_vals,
-        gammas=gammas, ranks=ranks, freq_ratios=freq_ratios,
+        r1=r1_vals,
+        r2=r2_vals,
+        theta=theta_vals,
+        phi=phi_vals,
+        gammas=gammas,
+        ranks=ranks,
+        freq_ratios=freq_ratios,
         n_clusters=n_clusters,
         is_periodic=result["is_periodic"],
         collision=result["collision"],

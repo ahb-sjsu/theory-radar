@@ -21,7 +21,6 @@ import heapq
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Callable
 
 import numpy as np
 
@@ -37,6 +36,7 @@ log = logging.getLogger(__name__)
 # ============================================================
 # Feature computation
 # ============================================================
+
 
 def compute_all_features(z, m1, m2, m3, r1, r2):
     """Compute every tensor feature we have."""
@@ -65,7 +65,7 @@ def compute_all_features(z, m1, m2, m3, r1, r2):
     # Frequency clusters
     n_clusters = 1
     for k in range(len(pos_freqs) - 1):
-        if pos_freqs[k] / (pos_freqs[k+1] + 1e-30) > 10:
+        if pos_freqs[k] / (pos_freqs[k + 1] + 1e-30) > 10:
             n_clusters += 1
 
     # Spectral entropy
@@ -87,6 +87,7 @@ def compute_all_features(z, m1, m2, m3, r1, r2):
 
     # Energy
     from tensor_3body.hamiltonian import hamiltonian
+
     E = hamiltonian(z, m1, m2, m3)
 
     # Traces
@@ -122,7 +123,9 @@ def compute_all_features(z, m1, m2, m3, r1, r2):
         "kepler_deviation": kepler_deviation,
         "pr": participation_ratio(H),
         "max_eig": eigs[-1],
-        "min_nonzero_eig": np.min(np.abs(eigs[np.abs(eigs) > 1e-10])) if np.any(np.abs(eigs) > 1e-10) else 0,
+        "min_nonzero_eig": np.min(np.abs(eigs[np.abs(eigs) > 1e-10]))
+        if np.any(np.abs(eigs) > 1e-10)
+        else 0,
         "qq_gap_over_max": qq_max_gap / (np.abs(qq_eigs).max() + 1e-30),
     }
 
@@ -131,8 +134,10 @@ def compute_all_features(z, m1, m2, m3, r1, r2):
 # Formula tree for symbolic search
 # ============================================================
 
+
 class Formula:
     """A formula tree node."""
+
     def evaluate(self, features: dict) -> float:
         raise NotImplementedError
 
@@ -217,6 +222,7 @@ class Binary(Formula):
 # A* search
 # ============================================================
 
+
 def evaluate_formula_f1(formula: Formula, feature_dicts: list, actual: np.ndarray) -> float:
     """Evaluate a formula as a periodicity predictor. Sweep threshold, return best F1."""
     values = np.array([formula.evaluate(f) for f in feature_dicts])
@@ -267,10 +273,22 @@ def search_formulas(
     """A* search through formula space."""
 
     feature_names = [
-        "rank", "qq_rank", "inner_rank", "max_gap", "qq_max_gap",
-        "gap_position", "freq_ratio", "n_clusters", "entropy",
-        "energy", "r2_r1", "kepler_deviation", "pr",
-        "qq_gap_over_max", "max_eig", "min_nonzero_eig",
+        "rank",
+        "qq_rank",
+        "inner_rank",
+        "max_gap",
+        "qq_max_gap",
+        "gap_position",
+        "freq_ratio",
+        "n_clusters",
+        "entropy",
+        "energy",
+        "r2_r1",
+        "kepler_deviation",
+        "pr",
+        "qq_gap_over_max",
+        "max_eig",
+        "min_nonzero_eig",
     ]
     unary_ops = ["log", "sqrt", "inv", "sq", "neg"]
     binary_ops = ["+", "-", "*", "/"]
@@ -329,8 +347,7 @@ def search_formulas(
 
         if explored % 500 == 0:
             best = max(results, key=lambda x: x[0])
-            log.info("  Explored %d formulas, best F1=%.3f: %s",
-                     explored, best[0], best[1])
+            log.info("  Explored %d formulas, best F1=%.3f: %s", explored, best[0], best[1])
 
     results.sort(key=lambda x: -x[0])
     return results[:20]
@@ -356,7 +373,9 @@ def main():
     feature_dicts = []
     z0_list = []
     for i in range(N):
-        z = config_to_phase_space_circular(r1_vals[i], r2_vals[i], theta_vals[i], phi_vals[i], m1, m2, m3)
+        z = config_to_phase_space_circular(
+            r1_vals[i], r2_vals[i], theta_vals[i], phi_vals[i], m1, m2, m3
+        )
         z0_list.append(z)
         feat = compute_all_features(z, m1, m2, m3, r1_vals[i], r2_vals[i])
         feature_dicts.append(feat)
@@ -369,8 +388,12 @@ def main():
 
     valid = ~result["collision"]
     actual = result["is_periodic"] & valid
-    log.info("Ground truth: %d/%d periodic (%.2f%%)",
-             actual.sum(), valid.sum(), 100 * actual.sum() / valid.sum())
+    log.info(
+        "Ground truth: %d/%d periodic (%.2f%%)",
+        actual.sum(),
+        valid.sum(),
+        100 * actual.sum() / valid.sum(),
+    )
 
     # Filter to valid configs
     valid_features = [f for f, v in zip(feature_dicts, valid) if v]
@@ -379,8 +402,7 @@ def main():
     # Search
     log.info("\nSearching formula space (max_depth=3, max_states=5000)...")
     t0 = time.time()
-    results = search_formulas(valid_features, valid_actual,
-                               max_depth=3, max_states=5000)
+    results = search_formulas(valid_features, valid_actual, max_depth=3, max_states=5000)
     elapsed = time.time() - t0
 
     log.info("\n" + "=" * 70)
@@ -424,8 +446,7 @@ def main():
     # The formula IS the conjecture
     log.info("\n" + "=" * 70)
     log.info("DISCOVERED CONJECTURE:")
-    log.info("  Periodicity is predicted by: %s %s %.4f",
-             best_formula, best_direction, best_thresh)
+    log.info("  Periodicity is predicted by: %s %s %.4f", best_formula, best_direction, best_thresh)
     log.info("  F1 = %.3f", best_thresh_f1)
     log.info("=" * 70)
 

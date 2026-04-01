@@ -396,7 +396,7 @@ def run_dataset(
         X.shape[0],
         d,
         total,
-        n_pca,
+        n_proj,
         max_depth,
         n_subspaces,
     )
@@ -412,7 +412,7 @@ def run_dataset(
     t0 = time.time()
 
     for fold_i, (tr, te) in enumerate(splits):
-        k = min(n_pca, d, X[tr].shape[0] - 1)
+        k = min(n_proj, d, X[tr].shape[0] - 1)
         from sklearn.cross_decomposition import PLSRegression
 
         pls = PLSRegression(n_components=k)

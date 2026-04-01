@@ -41,9 +41,13 @@ def main():
     ranks = []
     for idx in indices:
         z = config_to_phase_space_circular(
-            float(data["r1"][idx]), float(data["r2"][idx]),
-            float(data["theta"][idx]), float(data["phi"][idx]),
-            m1, m2, m3,
+            float(data["r1"][idx]),
+            float(data["r2"][idx]),
+            float(data["theta"][idx]),
+            float(data["phi"][idx]),
+            m1,
+            m2,
+            m3,
         )
         z0_list.append(z)
         ranks.append(int(data["eff_rank"][idx]))
@@ -53,29 +57,31 @@ def main():
     log.info("Built %d initial conditions", len(z0))
 
     # Integrate
-    result = integrate_batch(z0, m1, m2, m3, dt=0.005, n_steps=80000,
-                             gpu_id=0, auto_batch=True)
+    result = integrate_batch(z0, m1, m2, m3, dt=0.005, n_steps=80000, gpu_id=0, auto_batch=True)
 
     # Results
     valid = ~result["collision"]
     periodic = result["is_periodic"] & valid
     log.info("=" * 60)
-    log.info("RESULTS: %d/%d periodic (%.2f%%), %d collisions",
-             periodic.sum(), valid.sum(),
-             100 * periodic.sum() / valid.sum() if valid.sum() > 0 else 0,
-             result["collision"].sum())
+    log.info(
+        "RESULTS: %d/%d periodic (%.2f%%), %d collisions",
+        periodic.sum(),
+        valid.sum(),
+        100 * periodic.sum() / valid.sum() if valid.sum() > 0 else 0,
+        result["collision"].sum(),
+    )
 
     for r in sorted(set(ranks)):
         rmask = (ranks == r) & valid
         if rmask.sum() < 10:
             continue
         n_p = (periodic & (ranks == r)).sum()
-        log.info("  rank=%d: %d/%d periodic (%.2f%%)",
-                 r, n_p, rmask.sum(), 100 * n_p / rmask.sum())
+        log.info("  rank=%d: %d/%d periodic (%.2f%%)", r, n_p, rmask.sum(), 100 * n_p / rmask.sum())
 
     np.savez_compressed(
         "results/massive_orbit_search.npz",
-        ranks=ranks, periodic=result["is_periodic"],
+        ranks=ranks,
+        periodic=result["is_periodic"],
         collision=result["collision"],
         return_distance=result["return_distance"],
     )

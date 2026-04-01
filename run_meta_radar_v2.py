@@ -17,6 +17,7 @@ best predicts "this subtree is dead" with zero false negatives?
 """
 
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import cupy as cp
@@ -34,6 +35,7 @@ log = logging.getLogger()
 
 
 # ─── GPU Batch F1 (with constant-formula fix) ─────────────────────
+
 
 def gpu_batch_f1(vals, labels):
     N, K = vals.shape
@@ -75,9 +77,12 @@ def gpu_batch_auroc(vals, labels):
 
 
 BINARY_OPS = {
-    "+": lambda a, b: a + b, "-": lambda a, b: a - b,
-    "*": lambda a, b: a * b, "/": lambda a, b: a / (b + 1e-30),
-    "max": lambda a, b: cp.maximum(a, b), "min": lambda a, b: cp.minimum(a, b),
+    "+": lambda a, b: a + b,
+    "-": lambda a, b: a - b,
+    "*": lambda a, b: a * b,
+    "/": lambda a, b: a / (b + 1e-30),
+    "max": lambda a, b: cp.maximum(a, b),
+    "min": lambda a, b: cp.minimum(a, b),
     "hypot": lambda a, b: cp.sqrt(a**2 + b**2),
     "diff_sq": lambda a, b: (a - b) ** 2,
     "harmonic": lambda a, b: 2 * a * b / (a + b + 1e-30),
@@ -87,13 +92,15 @@ BINARY_OPS = {
 UNARY_OPS = {
     "log": lambda x: cp.log(cp.abs(x) + 1e-30),
     "sqrt": lambda x: cp.sqrt(cp.abs(x)),
-    "sq": lambda x: x ** 2, "abs": lambda x: cp.abs(x),
+    "sq": lambda x: x**2,
+    "abs": lambda x: cp.abs(x),
     "sigmoid": lambda x: 1.0 / (1.0 + cp.exp(-cp.clip(x, -500, 500))),
     "tanh": lambda x: cp.tanh(cp.clip(x, -500, 500)),
 }
 
 
 # ─── Phase 1: Exhaustive enumeration with parent tracking ─────────
+
 
 def exhaustive_with_lineage(X_gpu, y_gpu, feat_names, max_depth=3):
     """Enumerate all formulas, track parent-child relationships."""
@@ -109,8 +116,12 @@ def exhaustive_with_lineage(X_gpu, y_gpu, feat_names, max_depth=3):
     for i in range(d):
         name = feat_names[i]
         catalog[name] = {
-            "depth": 1, "f1": float(f1s[i]), "auroc": float(aurocs[i]),
-            "values": X_gpu[:, i].copy(), "n_features": 1, "parent": None,
+            "depth": 1,
+            "f1": float(f1s[i]),
+            "auroc": float(aurocs[i]),
+            "values": X_gpu[:, i].copy(),
+            "n_features": 1,
+            "parent": None,
         }
 
     log.info("  Depth 1: %d formulas", d)
@@ -135,8 +146,10 @@ def exhaustive_with_lineage(X_gpu, y_gpu, feat_names, max_depth=3):
                         if float(cp.var(cv)) < 1e-20:
                             continue
                         new_entries[cname] = {
-                            "depth": depth, "values": cv,
-                            "n_features": parent["n_features"] + (1 if feat_names[j] not in pname else 0),
+                            "depth": depth,
+                            "values": cv,
+                            "n_features": parent["n_features"]
+                            + (1 if feat_names[j] not in pname else 0),
                             "parent": pname,
                         }
                         children[pname].append(cname)
@@ -153,8 +166,10 @@ def exhaustive_with_lineage(X_gpu, y_gpu, feat_names, max_depth=3):
                     if float(cp.var(cv)) < 1e-20:
                         continue
                     new_entries[cname] = {
-                        "depth": depth, "values": cv,
-                        "n_features": parent["n_features"], "parent": pname,
+                        "depth": depth,
+                        "values": cv,
+                        "n_features": parent["n_features"],
+                        "parent": pname,
                     }
                     children[pname].append(cname)
                 except Exception:
@@ -173,7 +188,13 @@ def exhaustive_with_lineage(X_gpu, y_gpu, feat_names, max_depth=3):
             del vals_mat
 
         best = max(v["f1"] for v in catalog.values())
-        log.info("  Depth %d: %d new (%d total), best F1=%.4f", depth, len(new_entries), len(catalog), best)
+        log.info(
+            "  Depth %d: %d new (%d total), best F1=%.4f",
+            depth,
+            len(new_entries),
+            len(catalog),
+            best,
+        )
         prev_names = list(new_entries.keys())
 
     cp.get_default_memory_pool().free_all_blocks()
@@ -181,6 +202,7 @@ def exhaustive_with_lineage(X_gpu, y_gpu, feat_names, max_depth=3):
 
 
 # ─── Phase 2: Subtree viability (alive/dead classification) ───────
+
 
 def compute_subtree_viability(catalog, children, epsilon=0.005):
     """For each node, determine if its subtree contains a near-optimal formula.
@@ -203,9 +225,7 @@ def compute_subtree_viability(catalog, children, epsilon=0.005):
                 continue
             # Check if any child is alive
             child_alive = any(
-                catalog[c]["alive"] == 1
-                for c in children.get(name, [])
-                if c in catalog
+                catalog[c]["alive"] == 1 for c in children.get(name, []) if c in catalog
             )
             # Node is alive if IT reaches threshold OR any descendant does
             info["alive"] = 1 if (info["f1"] >= threshold or child_alive) else 0
@@ -215,13 +235,19 @@ def compute_subtree_viability(catalog, children, epsilon=0.005):
         nodes = [(n, v) for n, v in catalog.items() if v["depth"] == depth]
         alive = sum(1 for _, v in nodes if v["alive"] == 1)
         dead = len(nodes) - alive
-        log.info("  Depth %d: %d alive, %d dead (%.1f%% prunable)",
-                 depth, alive, dead, 100 * dead / max(len(nodes), 1))
+        log.info(
+            "  Depth %d: %d alive, %d dead (%.1f%% prunable)",
+            depth,
+            alive,
+            dead,
+            100 * dead / max(len(nodes), 1),
+        )
 
     return catalog
 
 
 # ─── Phase 3: Theory Radar on node features ───────────────────────
+
 
 def meta_radar_search(catalog, prevalence):
     """Use Theory Radar to find the best pruning criterion.
@@ -236,17 +262,19 @@ def meta_radar_search(catalog, prevalence):
     for name, info in catalog.items():
         if info["depth"] >= 3:
             continue
-        rows.append({
-            "name": name,
-            "depth": info["depth"],
-            "alive": info["alive"],
-            "f1": info["f1"],
-            "auroc": info["auroc"],
-            "n_features": info["n_features"],
-            "f1_gap": 1.0 - info["f1"],
-            "auroc_gap": 1.0 - info["auroc"],
-            "prev": prevalence,
-        })
+        rows.append(
+            {
+                "name": name,
+                "depth": info["depth"],
+                "alive": info["alive"],
+                "f1": info["f1"],
+                "auroc": info["auroc"],
+                "n_features": info["n_features"],
+                "f1_gap": 1.0 - info["f1"],
+                "auroc_gap": 1.0 - info["auroc"],
+                "prev": prevalence,
+            }
+        )
 
     if not rows:
         return []
@@ -293,15 +321,17 @@ def meta_radar_search(catalog, prevalence):
 
         # Also try: threshold such that ALL alive are above AND maximize pruning
         # Sort dead values, find how many are below min_alive
-        results.append({
-            "criterion": crit_name,
-            "threshold": float(min_alive),
-            "pruned": int(pruned),
-            "total_dead": int(total_dead),
-            "prune_rate": float(prune_rate),
-            "false_negatives": 0,  # guaranteed by construction
-            "total_alive": int(n_alive),
-        })
+        results.append(
+            {
+                "criterion": crit_name,
+                "threshold": float(min_alive),
+                "pruned": int(pruned),
+                "total_dead": int(total_dead),
+                "prune_rate": float(prune_rate),
+                "false_negatives": 0,  # guaranteed by construction
+                "total_alive": int(n_alive),
+            }
+        )
 
     # Depth 1: raw features
     for i in range(d):
@@ -333,7 +363,7 @@ def meta_radar_search(catalog, prevalence):
     unary_ops = {
         "log": lambda x: cp.log(cp.abs(x) + 1e-30),
         "sqrt": lambda x: cp.sqrt(cp.abs(x)),
-        "sq": lambda x: x ** 2,
+        "sq": lambda x: x**2,
         "inv": lambda x: 1.0 / (x + 1e-30),
     }
     for i in range(d):
@@ -352,6 +382,7 @@ def meta_radar_search(catalog, prevalence):
 
 
 # ─── Main ──────────────────────────────────────────────────────────
+
 
 def run_on_dataset(name, X, y, feat_names, max_d=10):
     log.info("=" * 70)
@@ -398,9 +429,14 @@ def run_on_dataset(name, X, y, feat_names, max_d=10):
     log.info("  %-45s  %-10s  %-10s  %-10s", "Criterion", "Threshold", "Pruned", "Prune%")
     log.info("  " + "-" * 80)
     for c in criteria[:15]:
-        log.info("  %-45s  %8.4f    %4d/%4d   %5.1f%%",
-                 c["criterion"][:45], c["threshold"],
-                 c["pruned"], c["total_dead"], 100 * c["prune_rate"])
+        log.info(
+            "  %-45s  %8.4f    %4d/%4d   %5.1f%%",
+            c["criterion"][:45],
+            c["threshold"],
+            c["pruned"],
+            c["total_dead"],
+            100 * c["prune_rate"],
+        )
 
     # Analysis: what features separate alive from dead?
     log.info("")
@@ -410,12 +446,18 @@ def run_on_dataset(name, X, y, feat_names, max_d=10):
         alive_vals = [v[fn] for v in catalog.values() if v["depth"] < 3 and v["alive"] == 1]
         dead_vals = [v[fn] for v in catalog.values() if v["depth"] < 3 and v["alive"] == 0]
         if alive_vals and dead_vals:
-            log.info("    %s: alive=%.4f±%.4f  dead=%.4f±%.4f",
-                     fn, np.mean(alive_vals), np.std(alive_vals),
-                     np.mean(dead_vals), np.std(dead_vals))
+            log.info(
+                "    %s: alive=%.4f±%.4f  dead=%.4f±%.4f",
+                fn,
+                np.mean(alive_vals),
+                np.std(alive_vals),
+                np.mean(dead_vals),
+                np.std(dead_vals),
+            )
 
     return {
-        "dataset": name, "n_formulas": len(catalog),
+        "dataset": name,
+        "n_formulas": len(catalog),
         "top_criteria": criteria[:20],
     }
 
@@ -427,8 +469,7 @@ def main():
     log.info("=" * 70)
 
     props = cp.cuda.runtime.getDeviceProperties(0)
-    log.info("GPU: %s (%.1f GB free)", props["name"].decode(),
-             cp.cuda.Device(0).mem_info[0] / 1e9)
+    log.info("GPU: %s (%.1f GB free)", props["name"].decode(), cp.cuda.Device(0).mem_info[0] / 1e9)
 
     datasets = []
 

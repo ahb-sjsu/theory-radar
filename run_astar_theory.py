@@ -24,10 +24,7 @@ sys.path.insert(0, "src")
 
 from symbolic_search import SymbolicSearch
 from symbolic_search._theory import (
-    verify_monotone_invariance,
     pairwise_f1_upper_bound,
-    compute_pruning_bounds,
-    conditional_mutual_information,
     find_irrelevant_features,
     astar_with_pruning,
 )
@@ -78,7 +75,7 @@ def main():
         "inv_pos": lambda x: 1.0 / (np.abs(x) + 1e-30),
     }
     non_monotone_transforms = {
-        "square": lambda x: x ** 2,
+        "square": lambda x: x**2,
         "abs": lambda x: np.abs(x),
     }
 
@@ -95,15 +92,25 @@ def main():
                 f1_after, _, _ = _f1_threshold_sweep(tvals, actual)
                 diff = abs(f1_after - f1_base)
                 if diff > 0.001:
-                    log.info("  VIOLATION: %s, feature %d, %s: %.4f -> %.4f (diff=%.4f)",
-                             name, i, tname, f1_base, f1_after, diff)
+                    log.info(
+                        "  VIOLATION: %s, feature %d, %s: %.4f -> %.4f (diff=%.4f)",
+                        name,
+                        i,
+                        tname,
+                        f1_base,
+                        f1_after,
+                        diff,
+                    )
                     theorem1_holds = False
 
     if theorem1_holds:
         log.info("  THEOREM 1 VERIFIED: No monotone transform changed F1")
-        log.info("  across %d datasets, %d features, %d transforms",
-                 len(datasets), sum(min(X.shape[1], 5) for X, _, _ in datasets.values()),
-                 len(monotone_transforms))
+        log.info(
+            "  across %d datasets, %d features, %d transforms",
+            len(datasets),
+            sum(min(X.shape[1], 5) for X, _, _ in datasets.values()),
+            len(monotone_transforms),
+        )
     else:
         log.info("  THEOREM 1: VIOLATIONS FOUND (check log above)")
 
@@ -120,8 +127,15 @@ def main():
                 f1_after, _, _ = _f1_threshold_sweep(tvals, actual)
                 diff = abs(f1_after - f1_base)
                 if diff > 0.01:
-                    log.info("    %s, feature %d, %s: %.4f -> %.4f (CHANGED by %.4f)",
-                             name, i, tname, f1_base, f1_after, diff)
+                    log.info(
+                        "    %s, feature %d, %s: %.4f -> %.4f (CHANGED by %.4f)",
+                        name,
+                        i,
+                        tname,
+                        f1_base,
+                        f1_after,
+                        diff,
+                    )
 
     # ============================================================
     # Theorem 2: Pairwise F1 Upper Bound
@@ -144,6 +158,7 @@ def main():
 
                 # Actual best across operations
                 from symbolic_search._ops import BINARY_OPS_MINIMAL
+
                 best_op_f1 = 0
                 for op_fn in BINARY_OPS_MINIMAL.values():
                     try:
@@ -156,12 +171,23 @@ def main():
                 n_tests += 1
                 if best_op_f1 > knn_f1 + 0.01:  # Small tolerance
                     n_violations += 1
-                    log.info("  VIOLATION: %s (%d,%d): KNN=%.3f < op=%.3f",
-                             name, i, j, knn_f1, best_op_f1)
+                    log.info(
+                        "  VIOLATION: %s (%d,%d): KNN=%.3f < op=%.3f",
+                        name,
+                        i,
+                        j,
+                        knn_f1,
+                        best_op_f1,
+                    )
 
-        log.info("  %s: %d/%d pairs tested, %d violations (%.1f%%)",
-                 name, n_tests, n_tests,
-                 n_violations, 100 * n_violations / max(n_tests, 1))
+        log.info(
+            "  %s: %d/%d pairs tested, %d violations (%.1f%%)",
+            name,
+            n_tests,
+            n_tests,
+            n_violations,
+            100 * n_violations / max(n_tests, 1),
+        )
 
     # ============================================================
     # Theorem 3: Conditional Irrelevance Pruning
@@ -187,11 +213,18 @@ def main():
 
         # Find irrelevant features
         irrelevant = find_irrelevant_features(X, y, best_i, threshold=0.01)
-        log.info("  %s: base feature=%d (F1=%.3f), irrelevant: %d/%d features",
-                 name, best_i, best_f1, len(irrelevant), d - 1)
+        log.info(
+            "  %s: base feature=%d (F1=%.3f), irrelevant: %d/%d features",
+            name,
+            best_i,
+            best_f1,
+            len(irrelevant),
+            d - 1,
+        )
 
         # Verify: do any irrelevant features actually improve F1?
         from symbolic_search._ops import BINARY_OPS_MINIMAL
+
         false_prunes = 0
         for j in irrelevant:
             for op_fn in BINARY_OPS_MINIMAL.values():
@@ -203,8 +236,7 @@ def main():
                 except Exception:
                     pass
 
-        log.info("    False prunes (irrelevant features that actually help): %d",
-                 false_prunes)
+        log.info("    False prunes (irrelevant features that actually help): %d", false_prunes)
 
     # ============================================================
     # A* with all three pruning strategies vs exhaustive
@@ -229,23 +261,33 @@ def main():
         speedup = time_exhaustive / max(time_astar, 0.001)
 
         log.info("\n  %s:", name)
-        log.info("    Exhaustive: F1=%.3f, formulas=%d, time=%.2fs",
-                 result_exhaustive.ceiling,
-                 result_exhaustive.formulas_tested,
-                 time_exhaustive)
-        log.info("    A* pruned:  F1=%.3f, formulas=%d, time=%.2fs, pruned=%d (%.0f%%)",
-                 result_astar["best_f1"],
-                 result_astar["formulas_evaluated"],
-                 time_astar,
-                 result_astar["formulas_pruned"],
-                 100 * result_astar["pruning_rate"])
-        log.info("    Speedup: %.1fx, F1 match: %s, Formula: %s",
-                 speedup, "YES" if f1_match else "NO",
-                 result_astar["best_formula"])
+        log.info(
+            "    Exhaustive: F1=%.3f, formulas=%d, time=%.2fs",
+            result_exhaustive.ceiling,
+            result_exhaustive.formulas_tested,
+            time_exhaustive,
+        )
+        log.info(
+            "    A* pruned:  F1=%.3f, formulas=%d, time=%.2fs, pruned=%d (%.0f%%)",
+            result_astar["best_f1"],
+            result_astar["formulas_evaluated"],
+            time_astar,
+            result_astar["formulas_pruned"],
+            100 * result_astar["pruning_rate"],
+        )
+        log.info(
+            "    Speedup: %.1fx, F1 match: %s, Formula: %s",
+            speedup,
+            "YES" if f1_match else "NO",
+            result_astar["best_formula"],
+        )
 
         if not f1_match:
-            log.info("    WARNING: A* found different F1 (%.3f vs %.3f)",
-                     result_astar["best_f1"], result_exhaustive.ceiling)
+            log.info(
+                "    WARNING: A* found different F1 (%.3f vs %.3f)",
+                result_astar["best_f1"],
+                result_exhaustive.ceiling,
+            )
 
     # ============================================================
     # Summary
@@ -253,8 +295,9 @@ def main():
     log.info("\n" + "=" * 70)
     log.info("SUMMARY OF THEORETICAL RESULTS")
     log.info("=" * 70)
-    log.info("Theorem 1 (Monotone Invariance): %s",
-             "VERIFIED" if theorem1_holds else "VIOLATIONS FOUND")
+    log.info(
+        "Theorem 1 (Monotone Invariance): %s", "VERIFIED" if theorem1_holds else "VIOLATIONS FOUND"
+    )
     log.info("  → Phase 3 (unary transforms) can be SKIPPED for monotone ops")
     log.info("  → This is PROVABLE from the definition of monotone functions")
     log.info("")

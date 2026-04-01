@@ -45,7 +45,7 @@ DATASETS = [
     ("Sonar", "sonar", 200, 100, 15, 12),
     # ── New: medium benchmarks (2K < N < 10K) ──
     ("Spambase", "spambase", 100, 100, 10, 10),
-    ("German", "german-credit", 200, 100, 15, 12),
+    ("German", "credit-g", 200, 100, 15, 12),
     ("Australian", "australian", 200, 100, 15, 12),
     # ── New: large benchmarks (N > 10K) ──
     ("Adult", "adult", 50, 50, 5, 8),

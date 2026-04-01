@@ -66,9 +66,13 @@ def main():
     n_collision = int(result["collision"].sum())
 
     log.info("=" * 60)
-    log.info("RESULTS: %d valid, %d collisions, %d periodic (%.2f%%)",
-             n_valid, n_collision, n_periodic,
-             100 * n_periodic / n_valid if n_valid > 0 else 0)
+    log.info(
+        "RESULTS: %d valid, %d collisions, %d periodic (%.2f%%)",
+        n_valid,
+        n_collision,
+        n_periodic,
+        100 * n_periodic / n_valid if n_valid > 0 else 0,
+    )
 
     # By rank
     for r in [9, 10]:
@@ -76,8 +80,9 @@ def main():
         v = rmask & valid
         n_p = int(result["is_periodic"][v].sum())
         n_t = int(v.sum())
-        log.info("  rank=%d: %d/%d periodic (%.1f%%)",
-                 r, n_p, n_t, 100 * n_p / n_t if n_t > 0 else 0)
+        log.info(
+            "  rank=%d: %d/%d periodic (%.1f%%)", r, n_p, n_t, 100 * n_p / n_t if n_t > 0 else 0
+        )
 
     # Top 20 closest returns
     vi = np.where(valid)[0]
@@ -86,13 +91,18 @@ def main():
     for i in order[:20]:
         idx = vi[i]
         r1, r2, theta, phi = configs[idx]
-        log.info("  r1=%.3f r2=%.3f th=%.3f phi=%.3f rank=%d  "
-                 "ret=%.4f t=%.1f periodic=%s E=%.1e",
-                 r1, r2, theta, phi, ranks[idx],
-                 result["return_distance"][idx],
-                 result["return_time"][idx],
-                 result["is_periodic"][idx],
-                 result["energy_error"][idx])
+        log.info(
+            "  r1=%.3f r2=%.3f th=%.3f phi=%.3f rank=%d  ret=%.4f t=%.1f periodic=%s E=%.1e",
+            r1,
+            r2,
+            theta,
+            phi,
+            ranks[idx],
+            result["return_distance"][idx],
+            result["return_time"][idx],
+            result["is_periodic"][idx],
+            result["energy_error"][idx],
+        )
 
     # Find configurations where periodicity breaks — the boundary
     # Group by (r1, r2) bins and find bins with mixed periodic/non-periodic
@@ -103,11 +113,11 @@ def main():
     for i in range(len(r1_bins) - 1):
         for j in range(len(r2_bins) - 1):
             bin_mask = (
-                valid &
-                (np.array([c[0] for c in configs]) >= r1_bins[i]) &
-                (np.array([c[0] for c in configs]) < r1_bins[i+1]) &
-                (np.array([c[1] for c in configs]) >= r2_bins[j]) &
-                (np.array([c[1] for c in configs]) < r2_bins[j+1])
+                valid
+                & (np.array([c[0] for c in configs]) >= r1_bins[i])
+                & (np.array([c[0] for c in configs]) < r1_bins[i + 1])
+                & (np.array([c[1] for c in configs]) >= r2_bins[j])
+                & (np.array([c[1] for c in configs]) < r2_bins[j + 1])
             )
             n_in_bin = int(bin_mask.sum())
             if n_in_bin < 5:
@@ -116,10 +126,16 @@ def main():
             frac = n_per / n_in_bin
             # Interesting = mixed (not 0% and not 100%)
             if 0.05 < frac < 0.95:
-                log.info("  r1=[%.1f,%.1f] r2=[%.1f,%.1f]: %d/%d periodic (%.0f%%)",
-                         r1_bins[i], r1_bins[i+1],
-                         r2_bins[j], r2_bins[j+1],
-                         n_per, n_in_bin, 100 * frac)
+                log.info(
+                    "  r1=[%.1f,%.1f] r2=[%.1f,%.1f]: %d/%d periodic (%.0f%%)",
+                    r1_bins[i],
+                    r1_bins[i + 1],
+                    r2_bins[j],
+                    r2_bins[j + 1],
+                    n_per,
+                    n_in_bin,
+                    100 * frac,
+                )
 
     # Save
     np.savez_compressed(

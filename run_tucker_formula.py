@@ -16,6 +16,7 @@ all original features through multilinear projections.
 """
 
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import cupy as cp
@@ -27,8 +28,8 @@ from collections import Counter
 from scipy import stats
 from joblib import Parallel, delayed
 
-from sklearn.datasets import load_breast_cancer, load_wine, fetch_openml
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.datasets import load_breast_cancer, fetch_openml
+from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import RepeatedStratifiedKFold
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -39,74 +40,127 @@ log = logging.getLogger()
 
 # ─── GPU core ──────────────────────────────────────────────────────
 
+
 def gpu_batch_f1(vals, labels):
     N, K = vals.shape
     pos = labels.sum()
-    if float(pos)==0 or float(pos)==N: return cp.zeros(K, dtype=cp.float64)
-    return cp.maximum(_sw(vals,labels,pos), _sw(-vals,labels,pos))
+    if float(pos) == 0 or float(pos) == N:
+        return cp.zeros(K, dtype=cp.float64)
+    return cp.maximum(_sw(vals, labels, pos), _sw(-vals, labels, pos))
+
 
 def _sw(vals, labels, pos):
-    N,K = vals.shape
+    N, K = vals.shape
     idx = cp.argsort(-vals, axis=0)
-    sv = cp.take_along_axis(vals,idx,axis=0); sl = labels[idx]
-    tp = cp.cumsum(sl,axis=0,dtype=cp.float64)
-    fp = cp.cumsum(1.0-sl,axis=0,dtype=cp.float64)
-    denom = tp+pos+fp; f1 = cp.where(denom>0, 2.0*tp/denom, 0.0)
-    v = cp.ones((N,K),dtype=cp.bool_); v[:-1,:] = (sv[:-1,:]-sv[1:,:])>1e-15
-    return cp.max(cp.where(v,f1,0.0), axis=0)
+    sv = cp.take_along_axis(vals, idx, axis=0)
+    sl = labels[idx]
+    tp = cp.cumsum(sl, axis=0, dtype=cp.float64)
+    fp = cp.cumsum(1.0 - sl, axis=0, dtype=cp.float64)
+    denom = tp + pos + fp
+    f1 = cp.where(denom > 0, 2.0 * tp / denom, 0.0)
+    v = cp.ones((N, K), dtype=cp.bool_)
+    v[:-1, :] = (sv[:-1, :] - sv[1:, :]) > 1e-15
+    return cp.max(cp.where(v, f1, 0.0), axis=0)
+
 
 VBIN = [
-    ("+",lambda B,F:B+F),("-",lambda B,F:B-F),("*",lambda B,F:B*F),
-    ("/",lambda B,F:B/(F+1e-30)),("max",lambda B,F:cp.maximum(B,F)),
-    ("min",lambda B,F:cp.minimum(B,F)),("hypot",lambda B,F:cp.sqrt(B**2+F**2)),
-    ("diff_sq",lambda B,F:(B-F)**2),("harmonic",lambda B,F:2*B*F/(B+F+1e-30)),
-    ("geometric",lambda B,F:cp.sign(B*F)*cp.sqrt(cp.abs(B*F))),
+    ("+", lambda B, F: B + F),
+    ("-", lambda B, F: B - F),
+    ("*", lambda B, F: B * F),
+    ("/", lambda B, F: B / (F + 1e-30)),
+    ("max", lambda B, F: cp.maximum(B, F)),
+    ("min", lambda B, F: cp.minimum(B, F)),
+    ("hypot", lambda B, F: cp.sqrt(B**2 + F**2)),
+    ("diff_sq", lambda B, F: (B - F) ** 2),
+    ("harmonic", lambda B, F: 2 * B * F / (B + F + 1e-30)),
+    ("geometric", lambda B, F: cp.sign(B * F) * cp.sqrt(cp.abs(B * F))),
 ]
 VUN = [
-    ("log",lambda V:cp.log(cp.abs(V)+1e-30)),("sqrt",lambda V:cp.sqrt(cp.abs(V))),
-    ("sq",lambda V:V**2),("abs",lambda V:cp.abs(V)),
-    ("sigmoid",lambda V:1.0/(1.0+cp.exp(-cp.clip(V,-500,500)))),
-    ("tanh",lambda V:cp.tanh(cp.clip(V,-500,500))),
+    ("log", lambda V: cp.log(cp.abs(V) + 1e-30)),
+    ("sqrt", lambda V: cp.sqrt(cp.abs(V))),
+    ("sq", lambda V: V**2),
+    ("abs", lambda V: cp.abs(V)),
+    ("sigmoid", lambda V: 1.0 / (1.0 + cp.exp(-cp.clip(V, -500, 500)))),
+    ("tanh", lambda V: cp.tanh(cp.clip(V, -500, 500))),
 ]
-SB={"+":lambda a,b:a+b,"-":lambda a,b:a-b,"*":lambda a,b:a*b,"/":lambda a,b:a/(b+1e-30),
-    "max":lambda a,b:np.maximum(a,b),"min":lambda a,b:np.minimum(a,b),
-    "hypot":lambda a,b:np.sqrt(a**2+b**2),"diff_sq":lambda a,b:(a-b)**2,
-    "harmonic":lambda a,b:2*a*b/(a+b+1e-30),"geometric":lambda a,b:np.sign(a*b)*np.sqrt(np.abs(a*b))}
-SU={"log":lambda x:np.log(np.abs(x)+1e-30),"sqrt":lambda x:np.sqrt(np.abs(x)),
-    "sq":lambda x:x**2,"abs":lambda x:np.abs(x),
-    "sigmoid":lambda x:1.0/(1.0+np.exp(-np.clip(x,-500,500))),
-    "tanh":lambda x:np.tanh(np.clip(x,-500,500))}
+SB = {
+    "+": lambda a, b: a + b,
+    "-": lambda a, b: a - b,
+    "*": lambda a, b: a * b,
+    "/": lambda a, b: a / (b + 1e-30),
+    "max": lambda a, b: np.maximum(a, b),
+    "min": lambda a, b: np.minimum(a, b),
+    "hypot": lambda a, b: np.sqrt(a**2 + b**2),
+    "diff_sq": lambda a, b: (a - b) ** 2,
+    "harmonic": lambda a, b: 2 * a * b / (a + b + 1e-30),
+    "geometric": lambda a, b: np.sign(a * b) * np.sqrt(np.abs(a * b)),
+}
+SU = {
+    "log": lambda x: np.log(np.abs(x) + 1e-30),
+    "sqrt": lambda x: np.sqrt(np.abs(x)),
+    "sq": lambda x: x**2,
+    "abs": lambda x: np.abs(x),
+    "sigmoid": lambda x: 1.0 / (1.0 + np.exp(-np.clip(x, -500, 500))),
+    "tanh": lambda x: np.tanh(np.clip(x, -500, 500)),
+}
+
 
 class FT:
-    def __init__(s,fi): s.ops=[("l",fi)]
-    def b(s,op,fi): t=FT.__new__(FT); t.ops=s.ops+[("b",op,fi)]; return t
-    def u(s,op): t=FT.__new__(FT); t.ops=s.ops+[("u",op)]; return t
-    def ev(s,X):
-        v=None
+    def __init__(s, fi):
+        s.ops = [("l", fi)]
+
+    def b(s, op, fi):
+        t = FT.__new__(FT)
+        t.ops = s.ops + [("b", op, fi)]
+        return t
+
+    def u(s, op):
+        t = FT.__new__(FT)
+        t.ops = s.ops + [("u", op)]
+        return t
+
+    def ev(s, X):
+        v = None
         for o in s.ops:
-            if o[0]=="l": v=X[:,o[1]].copy()
-            elif o[0]=="b": v=SB[o[1]](v,X[:,o[2]]); v=np.nan_to_num(v,nan=0.,posinf=1e10,neginf=-1e10)
-            elif o[0]=="u": v=SU[o[1]](v); v=np.nan_to_num(v,nan=0.,posinf=1e10,neginf=-1e10)
+            if o[0] == "l":
+                v = X[:, o[1]].copy()
+            elif o[0] == "b":
+                v = SB[o[1]](v, X[:, o[2]])
+                v = np.nan_to_num(v, nan=0.0, posinf=1e10, neginf=-1e10)
+            elif o[0] == "u":
+                v = SU[o[1]](v)
+                v = np.nan_to_num(v, nan=0.0, posinf=1e10, neginf=-1e10)
         return v
 
-def opt_thresh(vals,y):
-    bf,bt,bd=0.,0.,1; P=int(y.astype(bool).sum()); N=len(y)
-    if P==0 or P==N: return 0.,1,0.
-    for d in [1,-1]:
-        o=np.argsort(d*vals)[::-1]; sv=(d*vals)[o]; sa=y.astype(bool)[o]
-        tp=fp=0
+
+def opt_thresh(vals, y):
+    bf, bt, bd = 0.0, 0.0, 1
+    P = int(y.astype(bool).sum())
+    N = len(y)
+    if P == 0 or P == N:
+        return 0.0, 1, 0.0
+    for d in [1, -1]:
+        o = np.argsort(d * vals)[::-1]
+        sv = (d * vals)[o]
+        sa = y.astype(bool)[o]
+        tp = fp = 0
         for i in range(N):
-            if sa[i]: tp+=1
-            else: fp+=1
-            if tp+fp>0:
-                p=tp/(tp+fp); r=tp/P
-                if p+r>0:
-                    f=2*p*r/(p+r)
-                    if f>bf: bf,bt,bd=f,sv[i],d
-    return bt,bd,bf
+            if sa[i]:
+                tp += 1
+            else:
+                fp += 1
+            if tp + fp > 0:
+                p = tp / (tp + fp)
+                r = tp / P
+                if p + r > 0:
+                    f = 2 * p * r / (p + r)
+                    if f > bf:
+                        bf, bt, bd = f, sv[i], d
+    return bt, bd, bf
 
 
 # ─── Tucker Decomposition ─────────────────────────────────────────
+
 
 def tucker_features(X, rank=8):
     """Extract Tucker factor scores from feature interaction tensor.
@@ -145,7 +199,7 @@ def tucker_features(X, rank=8):
         # X_interact[i, j*d+k] = X[i,j] * X[i,k]
         X_interact = np.zeros((N, d * d), dtype=np.float64)
         for j in range(d):
-            X_interact[:, j*d:(j+1)*d] = X[:, j:j+1] * X  # (N, d)
+            X_interact[:, j * d : (j + 1) * d] = X[:, j : j + 1] * X  # (N, d)
 
         # SVD of the interaction matrix to get top-rank factors
         # Center first
@@ -153,7 +207,8 @@ def tucker_features(X, rank=8):
 
         # Truncated SVD for efficiency
         from sklearn.decomposition import TruncatedSVD
-        k = min(rank, d*d - 1, N - 1)
+
+        k = min(rank, d * d - 1, N - 1)
         svd = TruncatedSVD(n_components=k, random_state=42)
         tucker_scores = svd.fit_transform(X_interact)
 
@@ -161,7 +216,6 @@ def tucker_features(X, rank=8):
 
     else:
         # For high-d, use random projection of interactions
-        from sklearn.random_projection import GaussianRandomProjection
         rng = np.random.RandomState(42)
 
         # Project pairwise interactions to lower dimension
@@ -176,6 +230,7 @@ def tucker_features(X, rank=8):
         X_proj -= X_proj.mean(axis=0, keepdims=True)
 
         from sklearn.decomposition import TruncatedSVD
+
         k = min(rank, n_proj - 1, N - 1)
         svd = TruncatedSVD(n_components=k, random_state=42)
         tucker_scores = svd.fit_transform(X_proj)
@@ -203,73 +258,105 @@ def tucker_transform(X, model):
         d_sq = d * d
         X_interact = np.zeros((N, d_sq), dtype=np.float64)
         for j in range(d):
-            X_interact[:, j*d:(j+1)*d] = X[:, j:j+1] * X
+            X_interact[:, j * d : (j + 1) * d] = X[:, j : j + 1] * X
         X_interact -= X_interact.mean(axis=0, keepdims=True)
         return svd.transform(X_interact)
 
 
 # ─── Beam Search ───────────────────────────────────────────────────
 
+
 def beam_search(X_gpu, y_gpu, feat_names, max_depth=3, beam_width=100):
-    N, d = X_gpu.shape; yf = y_gpu.astype(cp.float64)
+    N, d = X_gpu.shape
+    yf = y_gpu.astype(cp.float64)
     f1s = gpu_batch_f1(X_gpu, yf)
     order = cp.argsort(-f1s).get()
     B = min(beam_width, d)
-    bv = cp.empty((N,B),dtype=cp.float64)
+    bv = cp.empty((N, B), dtype=cp.float64)
     bn, bt = [], []
     for rank, i in enumerate(order[:B]):
-        bv[:,rank] = X_gpu[:,i]; bn.append(feat_names[i]); bt.append(FT(i))
+        bv[:, rank] = X_gpu[:, i]
+        bn.append(feat_names[i])
+        bt.append(FT(i))
     best_f1, best_nm, best_tr = float(f1s[order[0]]), bn[0], bt[0]
 
-    for depth in range(2, max_depth+1):
-        Bc = bv.shape[1]; bv3 = bv[:,:,None]; fv3 = X_gpu[:,None,:]
+    for depth in range(2, max_depth + 1):
+        Bc = bv.shape[1]
+        bv3 = bv[:, :, None]
+        fv3 = X_gpu[:, None, :]
         ch, nc, tc = [], [], []
-        for on,of in VBIN:
+        for on, of in VBIN:
             try:
-                out = of(bv3,fv3).reshape(N,Bc*d)
-                out = cp.nan_to_num(out,nan=0.,posinf=1e10,neginf=-1e10)
+                out = of(bv3, fv3).reshape(N, Bc * d)
+                out = cp.nan_to_num(out, nan=0.0, posinf=1e10, neginf=-1e10)
                 ch.append(out)
                 for bi in range(Bc):
                     for fi in range(d):
-                        nc.append(f"({bn[bi]} {on} {feat_names[fi]})"); tc.append(bt[bi].b(on,fi))
-            except: pass
-        for on,of in VUN:
+                        nc.append(f"({bn[bi]} {on} {feat_names[fi]})")
+                        tc.append(bt[bi].b(on, fi))
+            except:
+                pass
+        for on, of in VUN:
             try:
-                out = of(bv); out = cp.nan_to_num(out,nan=0.,posinf=1e10,neginf=-1e10)
+                out = of(bv)
+                out = cp.nan_to_num(out, nan=0.0, posinf=1e10, neginf=-1e10)
                 ch.append(out)
-                for bi in range(Bc): nc.append(f"{on}({bn[bi]})"); tc.append(bt[bi].u(on))
-            except: pass
-        if not ch: break
-        av = cp.concatenate(ch,axis=1)
-        var = cp.var(av,axis=0); f1s = gpu_batch_f1(av,yf); f1s = cp.where(var<1e-20,0.0,f1s)
+                for bi in range(Bc):
+                    nc.append(f"{on}({bn[bi]})")
+                    tc.append(bt[bi].u(on))
+            except:
+                pass
+        if not ch:
+            break
+        av = cp.concatenate(ch, axis=1)
+        var = cp.var(av, axis=0)
+        f1s = gpu_batch_f1(av, yf)
+        f1s = cp.where(var < 1e-20, 0.0, f1s)
         tk = min(beam_width, av.shape[1])
-        ti = cp.argsort(-f1s)[:tk].get(); tf = f1s[cp.asarray(ti)].get()
-        bv = cp.empty((N,tk),dtype=cp.float64); bn, bt = [], []
+        ti = cp.argsort(-f1s)[:tk].get()
+        tf = f1s[cp.asarray(ti)].get()
+        bv = cp.empty((N, tk), dtype=cp.float64)
+        bn, bt = [], []
         for rank, i in enumerate(ti):
-            bv[:,rank]=av[:,i]; bn.append(nc[i]); bt.append(tc[i])
-            if float(tf[rank])>best_f1: best_f1,best_nm,best_tr=float(tf[rank]),nc[i],tc[i]
-        del av, ch; cp.get_default_memory_pool().free_all_blocks()
+            bv[:, rank] = av[:, i]
+            bn.append(nc[i])
+            bt.append(tc[i])
+            if float(tf[rank]) > best_f1:
+                best_f1, best_nm, best_tr = float(tf[rank]), nc[i], tc[i]
+        del av, ch
+        cp.get_default_memory_pool().free_all_blocks()
     return best_f1, best_nm, best_tr
 
 
-def run_bl(X,y,tr,te,fi):
-    o={}
-    for nm,clf in [("GB",GradientBoostingClassifier(n_estimators=100,max_depth=4,random_state=42+fi)),
-                   ("RF",RandomForestClassifier(n_estimators=100,random_state=42+fi)),
-                   ("LR",LogisticRegression(max_iter=1000,random_state=42))]:
-        clf.fit(X[tr],y[tr]); o[nm]=f1_score(y[te],clf.predict(X[te]))
+def run_bl(X, y, tr, te, fi):
+    o = {}
+    for nm, clf in [
+        ("GB", GradientBoostingClassifier(n_estimators=100, max_depth=4, random_state=42 + fi)),
+        ("RF", RandomForestClassifier(n_estimators=100, random_state=42 + fi)),
+        ("LR", LogisticRegression(max_iter=1000, random_state=42)),
+    ]:
+        clf.fit(X[tr], y[tr])
+        o[nm] = f1_score(y[te], clf.predict(X[te]))
     return o
 
 
 # ─── Main Pipeline ─────────────────────────────────────────────────
 
-def run_dataset(name, X, y, feat_names, n_repeats=200, n_folds=5,
-                tucker_rank=8, max_depth=3, beam_width=100):
+
+def run_dataset(
+    name, X, y, feat_names, n_repeats=200, n_folds=5, tucker_rank=8, max_depth=3, beam_width=100
+):
     total = n_repeats * n_folds
     d = X.shape[1]
     log.info("=" * 70)
-    log.info("TUCKER FORMULA: %s (N=%d, d=%d) — %d folds, rank=%d",
-             name, X.shape[0], d, total, tucker_rank)
+    log.info(
+        "TUCKER FORMULA: %s (N=%d, d=%d) — %d folds, rank=%d",
+        name,
+        X.shape[0],
+        d,
+        total,
+        tucker_rank,
+    )
     log.info("=" * 70)
 
     cv = RepeatedStratifiedKFold(n_splits=n_folds, n_repeats=n_repeats, random_state=42)
@@ -311,76 +398,114 @@ def run_dataset(name, X, y, feat_names, n_repeats=200, n_folds=5,
             y_gpu = cp.asarray(y[tr], dtype=cp.float64)
 
             train_f1, formula_name, trace = beam_search(
-                X_gpu, y_gpu, aug_names,
-                max_depth=max_depth, beam_width=beam_width)
+                X_gpu, y_gpu, aug_names, max_depth=max_depth, beam_width=beam_width
+            )
 
             astar_train_f1s.append(train_f1)
             formulas.append(formula_name)
 
             # Fair test eval
-            vtr = trace.ev(X_aug_tr); vte = trace.ev(X_aug_te)
+            vtr = trace.ev(X_aug_tr)
+            vte = trace.ev(X_aug_te)
             th, dr, _ = opt_thresh(vtr, y[tr])
             preds = (dr * vte >= th).astype(int)
             astar_f1s.append(f1_score(y[te], preds))
 
-            del X_gpu, y_gpu; cp.get_default_memory_pool().free_all_blocks()
+            del X_gpu, y_gpu
+            cp.get_default_memory_pool().free_all_blocks()
 
-            if (fold_i+1) % 100 == 0:
+            if (fold_i + 1) % 100 == 0:
                 elapsed = time.time() - t0
-                rate = (fold_i+1)/elapsed
-                log.info("  [%s] %d/%d  train=%.3f test=%.3f  %.1f/s",
-                         mode_name, fold_i+1, total,
-                         np.mean(astar_train_f1s[-100:]),
-                         np.mean(astar_f1s[-100:]), rate)
+                rate = (fold_i + 1) / elapsed
+                log.info(
+                    "  [%s] %d/%d  train=%.3f test=%.3f  %.1f/s",
+                    mode_name,
+                    fold_i + 1,
+                    total,
+                    np.mean(astar_train_f1s[-100:]),
+                    np.mean(astar_f1s[-100:]),
+                    rate,
+                )
 
         astar_f1s = np.array(astar_f1s)
         astar_train_f1s = np.array(astar_train_f1s)
-        fc = Counter(formulas); top = fc.most_common(1)[0]
+        fc = Counter(formulas)
+        top = fc.most_common(1)[0]
 
-        log.info("  [%s] TRAIN=%.4f TEST=%.4f gap=%.4f formula=%s (%.0f%%)",
-                 mode_name, astar_train_f1s.mean(), astar_f1s.mean(),
-                 astar_train_f1s.mean() - astar_f1s.mean(),
-                 top[0][:40], 100*top[1]/len(formulas))
+        log.info(
+            "  [%s] TRAIN=%.4f TEST=%.4f gap=%.4f formula=%s (%.0f%%)",
+            mode_name,
+            astar_train_f1s.mean(),
+            astar_f1s.mean(),
+            astar_train_f1s.mean() - astar_f1s.mean(),
+            top[0][:40],
+            100 * top[1] / len(formulas),
+        )
 
         all_mode_results[mode_name] = {
             "test_f1s": astar_f1s,
             "train_mean": float(astar_train_f1s.mean()),
             "test_mean": float(astar_f1s.mean()),
             "formula": top[0],
-            "stability": float(top[1]/len(formulas)),
+            "stability": float(top[1] / len(formulas)),
         }
 
     # CPU baselines
     t1 = time.time()
     nj = min(os.cpu_count() or 1, 16)
     bls = Parallel(n_jobs=nj, backend="loky", verbose=0)(
-        delayed(run_bl)(X,y,tr,te,fi) for fi,(tr,te) in enumerate(splits))
+        delayed(run_bl)(X, y, tr, te, fi) for fi, (tr, te) in enumerate(splits)
+    )
     cpu_time = time.time() - t1
 
     # Compare
     log.info("")
-    log.info("  %-12s %-8s %-8s %-35s %-12s %-12s %-12s",
-             "Mode", "Train", "Test", "Formula", "vs GB", "vs RF", "vs LR")
+    log.info(
+        "  %-12s %-8s %-8s %-35s %-12s %-12s %-12s",
+        "Mode",
+        "Train",
+        "Test",
+        "Formula",
+        "vs GB",
+        "vs RF",
+        "vs LR",
+    )
     log.info("  " + "-" * 105)
 
     results = {}
     for mode_name, mr in all_mode_results.items():
         mode_res = {}
-        for bn in ["GB","RF","LR"]:
+        for bn in ["GB", "RF", "LR"]:
             bf = np.array([r[bn] for r in bls])
             diff = mr["test_f1s"] - bf
             ts, pv = stats.ttest_1samp(diff, 0)
-            mode_res[bn] = {"mean":float(bf.mean()),"diff":float(diff.mean()),
-                            "sigma":float(abs(ts)),"dir":"A*>" if diff.mean()>0 else f"{bn}>"}
+            mode_res[bn] = {
+                "mean": float(bf.mean()),
+                "diff": float(diff.mean()),
+                "sigma": float(abs(ts)),
+                "dir": "A*>" if diff.mean() > 0 else f"{bn}>",
+            }
 
-        log.info("  %-12s %.4f  %.4f  %-35s %5.1f %s  %5.1f %s  %5.1f %s",
-                 mode_name, mr["train_mean"], mr["test_mean"], mr["formula"][:35],
-                 mode_res["GB"]["sigma"], mode_res["GB"]["dir"],
-                 mode_res["RF"]["sigma"], mode_res["RF"]["dir"],
-                 mode_res["LR"]["sigma"], mode_res["LR"]["dir"])
+        log.info(
+            "  %-12s %.4f  %.4f  %-35s %5.1f %s  %5.1f %s  %5.1f %s",
+            mode_name,
+            mr["train_mean"],
+            mr["test_mean"],
+            mr["formula"][:35],
+            mode_res["GB"]["sigma"],
+            mode_res["GB"]["dir"],
+            mode_res["RF"]["sigma"],
+            mode_res["RF"]["dir"],
+            mode_res["LR"]["sigma"],
+            mode_res["LR"]["dir"],
+        )
 
-        results[mode_name] = {"test_f1": mr["test_mean"], "formula": mr["formula"],
-                              "stability": mr["stability"], "baselines": mode_res}
+        results[mode_name] = {
+            "test_f1": mr["test_mean"],
+            "formula": mr["formula"],
+            "stability": mr["stability"],
+            "baselines": mode_res,
+        }
 
     return results
 
@@ -390,8 +515,9 @@ def main():
     log.info("Feature interactions via Tucker → symbolic formulas")
 
     props = cp.cuda.runtime.getDeviceProperties(0)
-    log.info("GPU: %s (%.1f GB free)", props["name"].decode(), cp.cuda.Device(0).mem_info[0]/1e9)
-    _ = cp.sort(cp.random.rand(10000,100),axis=0); cp.cuda.Stream.null.synchronize()
+    log.info("GPU: %s (%.1f GB free)", props["name"].decode(), cp.cuda.Device(0).mem_info[0] / 1e9)
+    _ = cp.sort(cp.random.rand(10000, 100), axis=0)
+    cp.cuda.Stream.null.synchronize()
 
     datasets = []
 
@@ -419,8 +545,9 @@ def main():
 
     all_results = {}
     for name, X, y, feats in datasets:
-        r = run_dataset(name, X, y, feats, n_repeats=200, n_folds=5,
-                        tucker_rank=8, max_depth=3, beam_width=100)
+        r = run_dataset(
+            name, X, y, feats, n_repeats=200, n_folds=5, tucker_rank=8, max_depth=3, beam_width=100
+        )
         all_results[name] = r
 
     with open("tucker_results.json", "w") as f:
