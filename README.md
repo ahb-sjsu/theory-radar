@@ -40,6 +40,49 @@ radar, result = TheoryRadar.autotune(X_train, y_train, max_time=120)
 
 Theory Radar is a complete search stack, not a one-off script.
 
+```mermaid
+flowchart TB
+    X[X train, y train]
+
+    subgraph T3["Tier 3: Representation"]
+      P1[PCA / PLS / Tucker /<br/>kernel / neural]
+      PROJ[Augmented features]
+    end
+
+    subgraph T2["Tier 2: Accelerators"]
+      BEAM[Beam search<br/>h = 1 - F1]
+      FUZZ[Subspace fuzzing]
+      META[Meta-learned pruning]
+    end
+
+    subgraph T1["Tier 1: Core Engine"]
+      ENUM[Phased enumeration<br/>formula trees]
+      F1[Exact optimal F1<br/>sort-and-sweep]
+      MI[Monotone Invariance<br/>reuse scores]
+      TRACE[FormulaTrace]
+    end
+
+    CV[Fair CV<br/>train: discover + tune<br/>test: score]
+    OUT["result.formula<br/>result.f1<br/>replayable on test"]
+
+    X --> P1 --> PROJ --> ENUM
+    X --> ENUM
+    ENUM --> F1 --> MI --> TRACE
+    BEAM --> ENUM
+    FUZZ --> ENUM
+    META --> ENUM
+    TRACE --> CV --> OUT
+
+    classDef tier3 fill:#e3f2fd,stroke:#1565c0;
+    classDef tier2 fill:#fff3e0,stroke:#e65100;
+    classDef tier1 fill:#c8e6c9,stroke:#1b5e20;
+    classDef out fill:#f3e5f5,stroke:#6a1b9a;
+    class P1,PROJ tier3;
+    class BEAM,FUZZ,META tier2;
+    class ENUM,F1,MI,TRACE tier1;
+    class CV,OUT out;
+```
+
 ### Tier 1: Core Engine
 
 The foundation. Produces valid, fair results on its own.
