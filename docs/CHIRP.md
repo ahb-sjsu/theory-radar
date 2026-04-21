@@ -1,7 +1,15 @@
 # Chirp — broadband probe for Theory Radar
 
-**Status:** prototype (branch `feature/chirp-eml-probe`) — not yet wired into
-`TheoryRadar.search()`. Standalone, importable, tested.
+> **⚠️ Status — 2026-04-20: VALIDATION FAILED.** The probe compiles, runs
+> cleanly, and passes its API-contract tests, but **does not extract signal
+> from real datasets at depth ≥ 3**. Do not merge this into the public API.
+> See §"Validation result" below for the diagnosis.
+>
+> The repo/branch is preserved for future work; the metaphor is still
+> correct and the paper's mathematics is untouched. What fails is the naive
+> training setup as currently implemented.
+
+**Branch:** `feature/chirp-eml-probe` — not yet wired into `TheoryRadar.search()`.
 **Paper:** Odrzywołek, *All elementary functions from a single binary operator*,
 arXiv:2603.21852 (March 2026).
 
@@ -92,6 +100,83 @@ The chirp mode ships IF all three of these pass on a fresh run:
 
 See `tests/test_symbolic_search/chirp/test_probe.py`. The `@pytest.mark.slow`
 tests are the hero-dataset validation.
+
+## Validation result (2026-04-20) — the probe does not train at depth 3
+
+Manual validation on two hero datasets with `scripts/chirp_validation.py`:
+
+| Dataset | Verdict | `feature_importance` |
+|---|---|---|
+| Pima Diabetes (N=768, D=8) | `no_elementary_fit` | `[0, 0, 0, 0, 0, 0, 0, 0]` |
+| EEG Eye State (N=14980, D=14) | `no_elementary_fit` | `[0, 0, …, 0]` |
+
+Both verdicts read as "correct" under `verdict()` but **zero importance
+across every feature means the probe is not producing any signal at all** —
+the tree output is a constant, insensitive to `X`. This is an architectural
+failure, not a convergence failure.
+
+### Why — trace with `scripts/chirp_diagnose_saturation.py`
+
+```
+depth=0: raw out  min=  -0.75  max=   1.17  std=0.3137    ok
+depth=1: raw out  min=   2.18  max=  14.81  std=5.4074    ok
+depth=2: raw out  min=   7.66  max=  50.00  std=18.4485   ok  (hitting ceiling)
+depth=3: raw out  min=  50.00  max=  50.00  std=0.0000    SATURATED
+depth=4: raw out  min=  50.00  max=  50.00  std=0.0000    SATURATED
+```
+
+The eml operator's `exp(x)` branch compounds with depth: `exp(exp(…))`
+saturates at `OUT_CLAMP = 50` after 2–3 layers from any standardized input.
+Gradient through a hard clamp is zero, so Adam cannot drive the leaves.
+
+Adam still has an escape hatch — the root `scale`/`bias` readout — so it
+drives `scale → 0`, outputting the constant `bias ≈ ȳ`. Loss lands at the
+baseline (predict mean) and stays there. The probe appears to "converge"
+to a constant predictor, and `feature_importance` is identically zero.
+
+The earlier Breast Cancer hero-test "pass" was a coincidence: sklearn's
+default Breast Cancer load returns unstandardized data with per-column
+scales differing by 3+ orders of magnitude, which happens to keep the
+tree output unsaturated. The `argsort` of a zero-importance array
+returns indices in descending order, and the test's "hit set" contained
+index 27 — pure luck.
+
+### Why depth 3 does not train on standardized inputs
+
+Standardized X has `std ≈ 1`. After one `eml` layer, output `std ≈ 5`.
+After two, output range is `[8, 50]`. After three, uniformly 50.
+Every subsequent layer is constant. The operator is simply not a
+fixed-point-stable composition on the real line; it requires a
+**contractive wrapper** to be trainable at depth.
+
+## Fix directions (if someone wants to revive this)
+
+1. **Replace hard clamps with smooth saturating functions.** The natural
+   candidates:
+   - `soft_clip(x, c) = c * tanh(x / c)` — bounded in [−c, c] with
+     O(1/c) gradient in the saturated regime. Still small, but nonzero.
+   - `smooth_exp(x) = log1pexp(x)` (softplus) as a replacement for `exp`.
+     Grows linearly, not exponentially. Kills the compositional blowup,
+     changes the operator's identities — you lose exact recovery of
+     `exp(x) = eml(x, 1)`. Now a different operator family.
+2. **Per-layer batchnorm.** Normalize tree output between layers. Standard
+   deep-learning trick for compositional blowup. Adds ~4d parameters per
+   eml-tree of depth d. Also changes the operator's identities.
+3. **Initialize leaves so compositional output stays bounded.** This
+   requires solving `eml(c, c) = c` for the leaf-constant fixed point;
+   approximate answer is `c ≈ -1.31` (LambertW-style). Aggressive
+   leaf-init pinning might keep the tree trainable at depth 3, but
+   Adam will rapidly drift away from the fixed point.
+4. **Shelf the probe** and accept that Theory Radar's classical engine
+   doesn't need a broadband precursor on the datasets we care about.
+
+My recommendation is (4) unless someone has a research reason to pursue
+(1) or (2). The metaphor is lovely, the paper's math is right, but the
+naive operator isn't trainable without structural modifications — and
+once you modify the operator you've lost the "eml = single primitive"
+property that made it interesting. The probe becomes just another
+differentiable symbolic-regression engine, of which there are several
+(PySR, KAN, DeepSymReg).
 
 ## Known limits
 
