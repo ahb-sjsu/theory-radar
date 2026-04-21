@@ -25,7 +25,8 @@ dependencies = [
 ensemble = ["scikit-learn>=1.0"]
 physics = ["scipy>=1.10", "tensorly>=0.8", "matplotlib>=3.7"]
 gpu = ["cupy-cuda12x"]
-all = ["scikit-learn>=1.0", "scipy>=1.10", "tensorly>=0.8", "matplotlib>=3.7"]
+chirp = ["torch>=2.0"]
+all = ["scikit-learn>=1.0", "scipy>=1.10", "tensorly>=0.8", "matplotlib>=3.7", "torch>=2.0"]
 dev = ["pytest>=7.0", "ruff>=0.4", "black>=24.0"]
 
 [project.urls]
@@ -37,6 +38,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "slow: marks tests as slow / require external datasets (deselect with '-m \"not slow\"')",
+]
 
 [tool.ruff]
 target-version = "py310"
